@@ -1,0 +1,41 @@
+name: Daily News Digest
+
+on:
+  # GitHub cron is UTC-only and ignores DST. Run at both 15:00 and 16:00 UTC;
+  # the script only sends when it is actually 8am America/Los_Angeles, so the
+  # email lands at 8am Pacific in both PDT (summer) and PST (winter).
+  schedule:
+    - cron: "0 15 * * *"
+    - cron: "0 16 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Send now, ignoring the 8am Pacific time gate"
+        type: boolean
+        default: true
+
+jobs:
+  send-digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Send daily digest
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENT: ${{ secrets.RECIPIENT }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force }}" = "true" ]; then
+            python -m news_bot.main --force
+          else
+            python -m news_bot.main
+          fi
