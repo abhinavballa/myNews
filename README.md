@@ -25,7 +25,7 @@ Add all four:
 | `GEMINI_API_KEY`     | your Gemini API key                          |
 | `GMAIL_ADDRESS`      | `bobball281@gmail.com` (the sender)          |
 | `GMAIL_APP_PASSWORD` | the 16-char Gmail app password               |
-| `RECIPIENT`          | `abhinavballa28@gmail.com` (where it's sent) |
+| `RECIPIENT`          | recipient email — or a comma-separated list  |
 
 ### 4. Test it
 - Go to the **Actions** tab → **Daily News Digest** → **Run workflow**

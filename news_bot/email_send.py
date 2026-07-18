@@ -64,7 +64,10 @@ def build_email_html(fragment: str) -> str:
 def send_email(html: str) -> None:
     sender = os.environ["GMAIL_ADDRESS"]
     password = os.environ["GMAIL_APP_PASSWORD"]
-    recipient = os.environ["RECIPIENT"]
+    # RECIPIENT may be a single address or a comma-separated list.
+    recipients = [r.strip() for r in os.environ["RECIPIENT"].split(",") if r.strip()]
+    if not recipients:
+        raise RuntimeError("RECIPIENT is empty — set at least one email address.")
 
     date = datetime.datetime.now(
         datetime.timezone(datetime.timedelta(hours=-8))
@@ -73,7 +76,7 @@ def send_email(html: str) -> None:
     msg = EmailMessage()
     msg["Subject"] = f"📰 Your Morning Brief — {date}"
     msg["From"] = sender
-    msg["To"] = recipient
+    msg["To"] = ", ".join(recipients)
     msg.set_content(
         "Your morning brief is best viewed in an HTML-capable email client."
     )
