@@ -23,7 +23,7 @@ Add all four:
 | Secret name          | Value                                        |
 |----------------------|----------------------------------------------|
 | `GEMINI_API_KEY`     | your Gemini API key                          |
-| `GMAIL_ADDRESS`      | `abhinavballa28@gmail.com` (the sender)      |
+| `GMAIL_ADDRESS`      | `bobball281@gmail.com` (the sender)          |
 | `GMAIL_APP_PASSWORD` | the 16-char Gmail app password               |
 | `RECIPIENT`          | `abhinavballa28@gmail.com` (where it's sent) |
 
