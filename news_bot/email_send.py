@@ -76,7 +76,10 @@ def send_email(html: str) -> None:
     msg = EmailMessage()
     msg["Subject"] = f"📰 Your Morning Brief — {date}"
     msg["From"] = sender
-    msg["To"] = ", ".join(recipients)
+    # Bcc everyone so recipients can't see each other's addresses. The visible
+    # To is just the sender ("undisclosed recipients"); delivery is controlled
+    # by the explicit to_addrs below.
+    msg["To"] = sender
     msg.set_content(
         "Your morning brief is best viewed in an HTML-capable email client."
     )
@@ -85,4 +88,4 @@ def send_email(html: str) -> None:
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
         server.starttls()
         server.login(sender, password)
-        server.send_message(msg)
+        server.send_message(msg, to_addrs=recipients)

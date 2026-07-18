@@ -76,6 +76,14 @@ market calls as speculative hypotheses, not guaranteed advice. </ul>
 <p> One short paragraph teaching a useful AI concept, term, or technique to deepen the \
 reader's fluency in the field. Make it genuinely educational. </p>
 
+<h2>🧠 Prompt Engineering Move</h2>
+<p> Teach ONE concrete, practical prompt-engineering concept or technique the reader can \
+apply today (e.g. few-shot examples, chain-of-thought, role/persona priming, output \
+schemas, prompt chaining, self-consistency, context stuffing vs. retrieval). Name the \
+technique in <strong>bold</strong>, explain in one or two sentences when and why it \
+works, and include a short concrete before/after or example snippet. Rotate the technique \
+day to day so it is not repetitive. </p>
+
 <p style="font-size:12px;color:#888;margin-top:16px">Market reads above are speculative \
 analysis for idea generation, not financial advice. Do your own research.</p>
 
