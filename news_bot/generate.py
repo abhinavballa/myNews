@@ -9,7 +9,7 @@ import re
 from google import genai
 from google.genai import types
 
-MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 
 PROMPT = """You are a sharp research analyst writing a daily morning briefing for an \
 ambitious engineer who works in AI and wants to stay deeply knowledgeable in AI \
