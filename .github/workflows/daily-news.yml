@@ -1,18 +1,17 @@
 name: Daily News Digest
 
 on:
-  # GitHub cron is UTC-only and ignores DST. Run at both 15:00 and 16:00 UTC;
-  # the script only sends when it is actually 8am America/Los_Angeles, so the
-  # email lands at 8am Pacific in both PDT (summer) and PST (winter).
+  # Runs hourly. Each run delivers to users whose current local hour equals
+  # their delivery_hour and who have no digest yet for their local date, so
+  # every user is served at their own local time (and correctly across DST).
   schedule:
-    - cron: "0 15 * * *"
-    - cron: "0 16 * * *"
+    - cron: "0 * * * *"
   workflow_dispatch:
     inputs:
-      force:
-        description: "Send now, ignoring the 8am Pacific time gate"
-        type: boolean
-        default: true
+      user:
+        description: "Force delivery for a single profile uuid (optional)"
+        type: string
+        required: false
 
 jobs:
   send-digest:
@@ -27,15 +26,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Send daily digest
+      - name: Run digest worker
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          RECIPIENT: ${{ secrets.RECIPIENT }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force }}" = "true" ]; then
-            python -m news_bot.main --force
+          if [ -n "${{ inputs.user }}" ]; then
+            python -m news_bot.main --user "${{ inputs.user }}"
           else
             python -m news_bot.main
           fi

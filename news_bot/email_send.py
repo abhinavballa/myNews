@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import datetime
 import os
 import smtplib
 from email.message import EmailMessage
@@ -53,33 +52,27 @@ FRAGMENT_STYLE = """
 """
 
 
-def build_email_html(fragment: str) -> str:
-    date = datetime.datetime.now(
-        datetime.timezone(datetime.timedelta(hours=-8))
-    ).strftime("%A, %B %d, %Y")
+def build_email_html(fragment: str, date: str) -> str:
+    """Wrap a digest fragment in the styled email shell. `date` is the user's
+    local date, e.g. "Monday, July 21, 2026"."""
     content = FRAGMENT_STYLE + f'<div class="digest">{fragment}</div>'
     return EMAIL_TEMPLATE.format(date=date, content=content)
 
 
-def send_email(html: str) -> None:
+def send_email(html: str, recipient: str, subject_date: str) -> None:
+    """Send one personalized brief to a single recipient.
+
+    Digests are personalized, so there is nothing to batch — each email is
+    addressed individually to one person (no Bcc). `subject_date` is a short
+    label like "Jul 21".
+    """
     sender = os.environ["GMAIL_ADDRESS"]
     password = os.environ["GMAIL_APP_PASSWORD"]
-    # RECIPIENT may be a single address or a comma-separated list.
-    recipients = [r.strip() for r in os.environ["RECIPIENT"].split(",") if r.strip()]
-    if not recipients:
-        raise RuntimeError("RECIPIENT is empty — set at least one email address.")
-
-    date = datetime.datetime.now(
-        datetime.timezone(datetime.timedelta(hours=-8))
-    ).strftime("%b %d")
 
     msg = EmailMessage()
-    msg["Subject"] = f"📰 Your Morning Brief — {date}"
+    msg["Subject"] = f"📰 Your Morning Brief — {subject_date}"
     msg["From"] = sender
-    # Bcc everyone so recipients can't see each other's addresses. The visible
-    # To is just the sender ("undisclosed recipients"); delivery is controlled
-    # by the explicit to_addrs below.
-    msg["To"] = sender
+    msg["To"] = recipient
     msg.set_content(
         "Your morning brief is best viewed in an HTML-capable email client."
     )
@@ -88,4 +81,4 @@ def send_email(html: str) -> None:
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
         server.starttls()
         server.login(sender, password)
-        server.send_message(msg, to_addrs=recipients)
+        server.send_message(msg)
