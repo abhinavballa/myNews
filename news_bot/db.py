@@ -20,7 +20,12 @@ class SupabaseError(RuntimeError):
 
 
 def _base_and_headers() -> tuple[str, dict[str, str]]:
-    url = os.environ["SUPABASE_URL"].rstrip("/")
+    url = os.environ["SUPABASE_URL"].strip().rstrip("/")
+    # Accept either the bare project URL (https://<ref>.supabase.co) or one that
+    # already includes the REST path; we always append /rest/v1 ourselves, so a
+    # trailing /rest/v1 here would otherwise double up and 404 (PGRST125).
+    if url.endswith("/rest/v1"):
+        url = url[: -len("/rest/v1")]
     key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
     headers = {
         "apikey": key,
@@ -37,15 +42,18 @@ def _request(method: str, path: str, *, params: dict[str, str] | None = None,
         headers = {**headers, **extra_headers}
     query = f"?{urllib.parse.urlencode(params)}" if params else ""
     data = json.dumps(body).encode() if body is not None else None
+    full_url = f"{base}/rest/v1/{path}{query}"
     req = urllib.request.Request(
-        f"{base}/rest/v1/{path}{query}", data=data, headers=headers, method=method
+        full_url, data=data, headers=headers, method=method
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             raw = resp.read().decode()
     except urllib.error.HTTPError as exc:  # pragma: no cover - network error path
         detail = exc.read().decode(errors="replace")
-        raise SupabaseError(f"{method} {path} failed ({exc.code}): {detail}") from exc
+        raise SupabaseError(
+            f"{method} {full_url} failed ({exc.code}): {detail}"
+        ) from exc
     return json.loads(raw) if raw else None
 
 

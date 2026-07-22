@@ -9,7 +9,7 @@
 insert into profiles (id, email, interests_text, compiled_profile, compiled_at,
                       delivery_hour, timezone, wants_push, wants_email, active)
 values (
-  '00000000-0000-0000-0000-000000000000',  -- <-- replace with auth.users uuid
+  '7d8b3d94-f2c0-493e-b82b-d37a7001f287',  -- <-- replace with auth.users uuid
   'abhinavballa28@gmail.com',
   'AI innovation, new research and papers, US politics, geopolitics, tech stocks, '
     'and turning all of it into money, businesses, AI automations to build, and '
