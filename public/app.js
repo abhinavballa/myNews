@@ -1,7 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const { SUPABASE_URL, SUPABASE_ANON_KEY } = window.MYNEWS_CONFIG;
-const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// supabase-js wants the bare project URL; tolerate a pasted /rest/v1 or trailing slash.
+const baseUrl = SUPABASE_URL.trim().replace(/\/+$/, "").replace(/\/rest\/v1$/, "");
+const sb = createClient(baseUrl, SUPABASE_ANON_KEY);
 
 // --- tiny helpers ---------------------------------------------------------
 const $ = (id) => document.getElementById(id);
