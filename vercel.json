@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/compile-profile.py",
+      "use": "@vercel/python",
+      "config": { "includeFiles": "news_bot/**" }
+    },
+    { "src": "public/**", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "/api/compile-profile", "methods": ["POST", "OPTIONS"], "dest": "/api/compile-profile.py" },
+    { "src": "/", "dest": "/public/index.html" },
+    { "src": "/(.*)", "dest": "/public/$1" }
+  ]
+}

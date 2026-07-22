@@ -7,8 +7,9 @@ hourly, so it works even when your computer is off.
 
 Each user's brief is built from *their* `compiled_profile` (persona, edge focus,
 and section list) stored in **Supabase** — not from a single hardcoded prompt.
-This is **Phase 1** (per-user worker, email delivery); the PWA, self-serve
-signup, and web push notifications land in Phases 2–3. See
+**Phase 1** is the per-user worker (email delivery). **Phase 2** adds the
+installable PWA: magic-link signup, a free-text interests box compiled into a
+profile, and an in-app reader/archive. Web push is Phase 3. See
 [`docs/superpowers/specs/2026-07-20-personalized-multiuser-digest-design.md`](docs/superpowers/specs/2026-07-20-personalized-multiuser-digest-design.md).
 
 ## How it works
@@ -65,6 +66,33 @@ python -m news_bot.main --user <your-profile-uuid>   # force one user now
 python -m news_bot.main                               # normal hourly behavior
 ```
 
+## The PWA (Phase 2)
+
+The installable web app lives in `public/` (static) plus one Python serverless
+function in `api/`. It deploys to **Vercel** with zero build step.
+
+**Layout**
+- `public/` — the PWA (served at `/`): sign-in, onboarding, Today, Archive, Settings.
+- `api/compile-profile.py` — `POST /api/compile-profile`: compiles the interests
+  text box into a `compiled_profile` via Gemini and writes it back **as the
+  signed-in user** (their token → RLS applies). This exists because a static page
+  can't hold the Gemini key.
+
+**Deploy**
+1. Fill `public/config.js` with your `SUPABASE_URL` and **anon** key (safe to
+   ship — RLS protects the data).
+2. In Supabase → Authentication → URL Configuration, add your Vercel domain to
+   the redirect allowlist (magic-link sign-in returns there).
+3. Import the repo into Vercel and set function env vars: `GEMINI_API_KEY`,
+   `SUPABASE_URL`, `SUPABASE_ANON_KEY`. Deploy.
+4. Open the site → sign in → describe your interests → confirm the sections →
+   pick a delivery hour. On iOS, **Add to Home Screen** to install (and, in
+   Phase 3, to enable notifications).
+
+The GitHub Actions worker and the PWA share the same `profiles`/`digests`
+tables, so a profile created in the app is delivered by the hourly worker with
+no extra wiring.
+
 ## Tests
 
 ```bash
@@ -73,7 +101,8 @@ pytest
 ```
 
 Covers due-user selection across timezones and DST boundaries, `compiled_profile`
-schema validation, prompt compilation, and digest idempotency.
+schema validation, prompt compilation, interests-compilation parsing, and digest
+idempotency.
 
 ## Customize
 

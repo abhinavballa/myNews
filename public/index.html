@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0e1116" />
+  <title>myNews — Morning Brief</title>
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="apple-touch-icon" href="/icon.svg" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="app">
+      <div class="brand">my<span>News</span></div>
+      <button id="signOutBtn" class="secondary hidden" style="width:auto;margin:0;padding:8px 12px;">Sign out</button>
+    </header>
+
+    <!-- Sign in -->
+    <section id="view-signin" class="card hidden">
+      <h1>Your morning brief</h1>
+      <p class="muted">A daily brief built around exactly what you want to follow. Sign in and we'll send a magic link.</p>
+      <label for="email">Email</label>
+      <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" />
+      <button id="sendLinkBtn">Send magic link</button>
+    </section>
+
+    <!-- Onboarding: interests -->
+    <section id="view-interests" class="card hidden">
+      <h1>What do you want to know about?</h1>
+      <p class="muted">Describe it in your own words — topics, industries, the angle you care about. Example: "AI news plus what I could build or invest in" or "entertainment industry, box office, what to watch."</p>
+      <textarea id="interests" placeholder="Type your interests…"></textarea>
+      <button id="compileBtn">Build my brief</button>
+    </section>
+
+    <!-- Onboarding: confirm sections -->
+    <section id="view-confirm" class="card hidden">
+      <h1>Here's your brief</h1>
+      <p class="muted">These are the sections you'll get each morning. Looks good?</p>
+      <div id="sectionsPreview"></div>
+      <label for="hour">Delivery time (your local time)</label>
+      <div class="row">
+        <select id="hour"></select>
+        <select id="tz"></select>
+      </div>
+      <div class="toggle">
+        <input id="wantsEmail" type="checkbox" checked />
+        <label for="wantsEmail">Also email me the brief</label>
+      </div>
+      <button id="saveProfileBtn">Save &amp; finish</button>
+      <button id="editInterestsBtn" class="secondary">Edit interests</button>
+    </section>
+
+    <!-- Today -->
+    <section id="view-today" class="card hidden">
+      <h1 id="todayTitle">Today</h1>
+      <div id="todayContent" class="digest"></div>
+    </section>
+
+    <!-- Archive -->
+    <section id="view-archive" class="card hidden">
+      <h1>Archive</h1>
+      <div id="archiveList"></div>
+    </section>
+
+    <!-- Settings -->
+    <section id="view-settings" class="card hidden">
+      <h1>Settings</h1>
+      <label for="settingsInterests">Your interests (editing rebuilds your brief)</label>
+      <textarea id="settingsInterests"></textarea>
+      <button id="recompileBtn" class="secondary">Rebuild brief</button>
+      <label for="settingsHour">Delivery time</label>
+      <div class="row">
+        <select id="settingsHour"></select>
+        <select id="settingsTz"></select>
+      </div>
+      <div class="toggle">
+        <input id="settingsWantsEmail" type="checkbox" />
+        <label for="settingsWantsEmail">Email me the brief</label>
+      </div>
+      <button id="saveSettingsBtn">Save settings</button>
+    </section>
+  </div>
+
+  <nav class="tabs hidden" id="tabs">
+    <button data-tab="today">Today</button>
+    <button data-tab="archive">Archive</button>
+    <button data-tab="settings">Settings</button>
+  </nav>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="/config.js"></script>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
