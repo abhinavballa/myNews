@@ -114,7 +114,8 @@ $("sendLinkBtn").onclick = async () => {
 $("verifyOtpBtn").onclick = async () => {
   const email = $("email").value.trim();
   const token = $("otpCode").value.trim();
-  if (!/^\d{6}$/.test(token)) return toast("Enter the 6-digit code", true);
+  // Supabase's OTP length is configurable (commonly 6-7); don't hardcode it.
+  if (!/^\d{4,10}$/.test(token)) return toast("Enter the numeric code from your email", true);
   $("verifyOtpBtn").disabled = true;
   const { error } = await sb.auth.verifyOtp({ email, token, type: "email" });
   $("verifyOtpBtn").disabled = false;
