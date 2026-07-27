@@ -19,10 +19,19 @@
     <!-- Sign in -->
     <section id="view-signin" class="card hidden">
       <h1>Your morning brief</h1>
-      <p class="muted">A daily brief built around exactly what you want to follow. Sign in and we'll send a magic link.</p>
+      <p class="muted">A daily brief built around exactly what you want to follow. Enter your email and we'll send you a sign-in code.</p>
       <label for="email">Email</label>
       <input id="email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" />
-      <button id="sendLinkBtn">Send magic link</button>
+      <button id="sendLinkBtn">Send code</button>
+
+      <div id="otpStep" class="hidden">
+        <label for="otpCode">Enter the 6-digit code from your email</label>
+        <input id="otpCode" type="text" inputmode="numeric" autocomplete="one-time-code"
+               pattern="[0-9]*" maxlength="6" placeholder="123456" />
+        <button id="verifyOtpBtn">Verify &amp; sign in</button>
+        <p class="muted" style="margin-top:12px">On iPhone, typing the code here keeps you
+          signed in inside the installed app — clicking the email link only works in Safari.</p>
+      </div>
     </section>
 
     <!-- Onboarding: interests -->

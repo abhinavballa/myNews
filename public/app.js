@@ -92,6 +92,11 @@ async function route() {
 }
 
 // --- sign in --------------------------------------------------------------
+// Code-based OTP: the user types the 6-digit code from the email, so sign-in
+// completes *inside* whatever context they're in. This is the only flow that
+// works for an installed iOS PWA — email links always open in Safari, whose
+// storage is separate from the home-screen app, so a link can never sign the
+// installed app in. The link still works too (for desktop).
 $("sendLinkBtn").onclick = async () => {
   const email = $("email").value.trim();
   if (!email) return toast("Enter your email", true);
@@ -101,7 +106,20 @@ $("sendLinkBtn").onclick = async () => {
   });
   $("sendLinkBtn").disabled = false;
   if (error) return toast(error.message, true);
-  toast("Check your email for the magic link ✉️");
+  $("otpStep").classList.remove("hidden");
+  $("otpCode").focus();
+  toast("We emailed you a 6-digit code ✉️");
+};
+
+$("verifyOtpBtn").onclick = async () => {
+  const email = $("email").value.trim();
+  const token = $("otpCode").value.trim();
+  if (!/^\d{6}$/.test(token)) return toast("Enter the 6-digit code", true);
+  $("verifyOtpBtn").disabled = true;
+  const { error } = await sb.auth.verifyOtp({ email, token, type: "email" });
+  $("verifyOtpBtn").disabled = false;
+  if (error) return toast(error.message, true);
+  // onAuthStateChange fires route() on success.
 };
 
 $("signOutBtn").onclick = async () => { await sb.auth.signOut(); route(); };
