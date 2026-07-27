@@ -78,17 +78,19 @@ def compile_interests(interests_text: str, *, model: str | None = None) -> dict[
     from google import genai
     from google.genai import types
 
+    from news_bot.generate import generate_content_resilient, model_chain
+
     if not interests_text or not interests_text.strip():
         raise ValueError("interests_text is empty")
 
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    response = client.models.generate_content(
-        model=model or os.environ.get("GEMINI_MODEL", "gemini-3.5-flash"),
-        contents=build_compile_prompt(interests_text),
-        config=types.GenerateContentConfig(
-            temperature=0.3,
-            response_mime_type="application/json",
-        ),
+    config = types.GenerateContentConfig(
+        temperature=0.3,
+        response_mime_type="application/json",
+    )
+    response = generate_content_resilient(
+        client, build_compile_prompt(interests_text), config,
+        models=[model] if model else model_chain(),
     )
 
     compiled = _extract_json(response.text or "")

@@ -9,9 +9,70 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from typing import Any
 
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
+
+# Gemini sheds load with transient 5xx/429s ("model is experiencing high
+# demand"). Retry a couple times, then fall back to another model that may have
+# capacity, before giving up on a user for the day.
+_RETRYABLE_CODES = {429, 500, 502, 503, 504}
+_RETRYABLE_STATUS = {"UNAVAILABLE", "RESOURCE_EXHAUSTED", "INTERNAL",
+                     "DEADLINE_EXCEEDED", "OVERLOADED"}
+
+
+def _is_transient(exc: Exception) -> bool:
+    """True for retryable Gemini failures (overload / rate limit / 5xx)."""
+    code = getattr(exc, "code", None)
+    if isinstance(code, int) and code in _RETRYABLE_CODES:
+        return True
+    status = getattr(exc, "status", None)
+    if isinstance(status, str) and status.upper() in _RETRYABLE_STATUS:
+        return True
+    text = str(exc).upper()
+    if any(s in text for s in _RETRYABLE_STATUS):
+        return True
+    return any(f" {c} " in f" {text} " for c in map(str, _RETRYABLE_CODES))
+
+
+def model_chain() -> list[str]:
+    """Primary model first, then fallbacks (GEMINI_FALLBACK_MODELS, comma-sep)."""
+    primary = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
+    fallbacks = os.environ.get("GEMINI_FALLBACK_MODELS", "gemini-3.5-pro")
+    chain = [primary]
+    for m in (x.strip() for x in fallbacks.split(",")):
+        if m and m not in chain:
+            chain.append(m)
+    return chain
+
+
+def generate_content_resilient(client, prompt: str, config, *,
+                               models: list[str] | None = None,
+                               attempts_per_model: int = 2,
+                               sleep_seconds: float = 3.0,
+                               sleep_fn=time.sleep):
+    """generate_content with per-model retries and cross-model fallback.
+
+    Non-transient errors raise immediately; transient ones retry the same model,
+    then move to the next model in the chain. Raises the last error if all fail.
+    """
+    chain = models or model_chain()
+    last_exc: Exception | None = None
+    for model in chain:
+        for attempt in range(attempts_per_model):
+            try:
+                return client.models.generate_content(
+                    model=model, contents=prompt, config=config
+                )
+            except Exception as exc:  # noqa: BLE001 - classify then re-raise
+                if not _is_transient(exc):
+                    raise
+                last_exc = exc
+                if attempt < attempts_per_model - 1:
+                    sleep_fn(sleep_seconds)
+    assert last_exc is not None
+    raise last_exc
 
 # The invariant scaffolding around every brief. Persona, edge focus, and the
 # sections are injected from the user's compiled_profile.
@@ -84,14 +145,11 @@ def generate_digest_html(compiled_profile: dict[str, Any], date: str) -> str:
 
     prompt = compile_prompt(compiled_profile, date)
 
-    response = client.models.generate_content(
-        model=MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            tools=[types.Tool(google_search=types.GoogleSearch())],
-            temperature=0.4,
-        ),
+    config = types.GenerateContentConfig(
+        tools=[types.Tool(google_search=types.GoogleSearch())],
+        temperature=0.4,
     )
+    response = generate_content_resilient(client, prompt, config)
 
     fragment = _clean_fragment(response.text or "")
     if len(fragment) < 200:

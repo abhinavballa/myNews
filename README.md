@@ -111,3 +111,6 @@ idempotency.
 - **Delivery time / timezone / channels:** the profile's `delivery_hour`,
   `timezone`, `wants_email` columns.
 - **More depth:** set `GEMINI_MODEL=gemini-3.5-pro`.
+- **Resilience:** on a transient Gemini error (503 overload, 429), the worker
+  retries, then falls back to the models in `GEMINI_FALLBACK_MODELS`
+  (comma-separated, default `gemini-3.5-pro`) before skipping a user for the day.
