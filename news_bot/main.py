@@ -14,9 +14,9 @@ from __future__ import annotations
 import datetime
 import sys
 
-from news_bot import db
+from news_bot import db, push
 from news_bot.email_send import build_email_html, send_email
-from news_bot.generate import generate_digest_html
+from news_bot.generate import build_teaser, generate_digest_html
 from news_bot.profiles import Profile, select_due_profiles
 
 
@@ -51,7 +51,32 @@ def deliver(profile: Profile, local_date: str) -> None:
         html = build_email_html(fragment, _human_date(local_date))
         send_email(html, profile.email, _subject_date(local_date))
         print(f"  [{profile.id}] emailed {profile.email}.")
-    # wants_push delivery lands in Phase 3.
+
+    if profile.wants_push:
+        _deliver_push(profile, build_teaser(fragment))
+
+
+def _deliver_push(profile: Profile, teaser: str) -> None:
+    """Send the day's teaser to each of the user's devices; prune dead ones.
+
+    Isolated from email: a push failure never affects email delivery, and one
+    dead device never blocks the others.
+    """
+    subs = db.fetch_push_subscriptions(profile.id)
+    sent = 0
+    for sub in subs:
+        try:
+            result = push.send_push(sub, "📰 Your Morning Brief", teaser, "/")
+        except Exception as exc:  # never let push break the run
+            print(f"  [{profile.id}] push error on sub {sub.get('id')}: {exc!r}")
+            continue
+        if result == "prune":
+            db.delete_push_subscription(sub["id"])
+            print(f"  [{profile.id}] pruned dead subscription {sub['id']}.")
+        elif result == "sent":
+            sent += 1
+    if subs:
+        print(f"  [{profile.id}] pushed to {sent}/{len(subs)} device(s).")
 
 
 def run(now_utc: datetime.datetime, only_user: str | None = None) -> int:

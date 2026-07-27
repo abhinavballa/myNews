@@ -7,7 +7,7 @@ const sb = createClient(baseUrl, SUPABASE_ANON_KEY);
 
 // --- tiny helpers ---------------------------------------------------------
 const $ = (id) => document.getElementById(id);
-const views = ["signin", "interests", "confirm", "today", "archive", "settings"];
+const views = ["signin", "interests", "confirm", "notify", "today", "archive", "settings"];
 function show(view) {
   views.forEach((v) => $(`view-${v}`).classList.toggle("hidden", v !== view));
   const appViews = ["today", "archive", "settings"];
@@ -167,8 +167,85 @@ $("saveProfileBtn").onclick = async () => {
   }).eq("id", user.id);
   if (error) return toast(error.message, true);
   await loadProfile();
-  toast("You're all set ☕");
-  openToday();
+  openNotify();
+};
+
+// --- install + push notifications ----------------------------------------
+const isStandalone = () =>
+  window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window;
+
+let deferredInstallPrompt = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e; // Android/desktop Chrome: we can trigger install
+  $("installBtn").classList.remove("hidden");
+  $("settingsInstallBtn").classList.remove("hidden");
+});
+
+async function installApp() {
+  if (deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+  } else if (isIOS()) {
+    $("iosInstall").classList.remove("hidden");
+  } else {
+    toast("Use your browser menu → Install app");
+  }
+}
+
+function urlBase64ToUint8Array(base64) {
+  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+  const b64 = (base64 + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(b64);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+async function enablePush() {
+  if (!pushSupported()) return toast("Push isn't supported on this browser", true);
+  const key = window.MYNEWS_CONFIG.VAPID_PUBLIC_KEY;
+  if (!key || key.startsWith("YOUR-")) return toast("Push isn't configured yet", true);
+  // iOS only allows push once the PWA is installed to the home screen.
+  if (isIOS() && !isStandalone()) {
+    $("iosInstall").classList.remove("hidden");
+    return toast("On iPhone, add to Home Screen first, then enable", true);
+  }
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") return toast("Notifications not enabled", true);
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(key),
+    });
+    const j = sub.toJSON();
+    const up = await sb.from("push_subscriptions").upsert({
+      user_id: profile.id, endpoint: j.endpoint,
+      p256dh: j.keys.p256dh, auth: j.keys.auth,
+    }, { onConflict: "endpoint" });
+    if (up.error) return toast(up.error.message, true);
+    await sb.from("profiles").update({ wants_push: true }).eq("id", profile.id);
+    await loadProfile();
+    toast("Notifications enabled 🔔");
+    return true;
+  } catch (e) {
+    toast(`Couldn't enable notifications: ${e.message}`, true);
+  }
+}
+
+function openNotify() {
+  show("notify");
+  $("iosInstall").classList.toggle("hidden", !(isIOS() && !isStandalone()));
+  $("installBtn").classList.toggle("hidden", !deferredInstallPrompt);
+}
+
+$("installBtn").onclick = installApp;
+$("skipNotifyBtn").onclick = () => { toast("You're all set ☕"); openToday(); };
+$("enablePushBtn").onclick = async () => {
+  const ok = await enablePush();
+  if (ok) openToday();
 };
 
 // --- today ----------------------------------------------------------------
@@ -224,7 +301,12 @@ function openSettings() {
   fillHourSelect($("settingsHour"), profile.delivery_hour);
   fillTzSelect($("settingsTz"), profile.timezone);
   $("settingsWantsEmail").checked = !!profile.wants_email;
+  $("settingsWantsPush").checked = !!profile.wants_push;
+  $("settingsInstallBtn").classList.toggle("hidden", !deferredInstallPrompt);
 }
+
+$("settingsEnablePushBtn").onclick = () => enablePush();
+$("settingsInstallBtn").onclick = installApp;
 
 $("recompileBtn").onclick = async () => {
   const text = $("settingsInterests").value.trim();
@@ -248,6 +330,7 @@ $("saveSettingsBtn").onclick = async () => {
     delivery_hour: parseInt($("settingsHour").value, 10),
     timezone: $("settingsTz").value,
     wants_email: $("settingsWantsEmail").checked,
+    wants_push: $("settingsWantsPush").checked,
   }).eq("id", profile.id);
   if (error) return toast(error.message, true);
   await loadProfile();

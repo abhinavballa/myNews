@@ -3,3 +3,6 @@ __pycache__/
 .env
 .venv/
 venv/
+
+# Personal interview-prep notes (not for the public repo)
+INTERVIEW_NOTES.md

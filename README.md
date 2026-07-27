@@ -93,6 +93,24 @@ The GitHub Actions worker and the PWA share the same `profiles`/`digests`
 tables, so a profile created in the app is delivered by the hourly worker with
 no extra wiring.
 
+## Web push (Phase 3)
+
+The daily brief can also arrive as a phone notification (a one-line teaser that
+opens the full brief in-app). Uses Web Push + VAPID via `pywebpush`.
+
+**Setup**
+1. Generate a VAPID keypair once: `python scripts/gen_vapid.py`.
+2. Put `VAPID_PUBLIC_KEY` into `public/config.js` (safe to ship).
+3. Add GitHub secrets `VAPID_PRIVATE_KEY` (the PEM block) and `VAPID_SUBJECT`
+   (a `mailto:` you own).
+4. In the app: onboarding ends with an install + "Enable notifications" step;
+   Settings can also enable it per device.
+
+**iOS caveat:** web push only works after the user adds the app to their home
+screen, and the permission prompt must be triggered by a tap — the onboarding
+flow is ordered around this. Dead endpoints (HTTP 404/410) are pruned
+automatically on the next send.
+
 ## Tests
 
 ```bash

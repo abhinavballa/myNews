@@ -122,6 +122,22 @@ def compile_prompt(compiled_profile: dict[str, Any], date: str) -> str:
     )
 
 
+def build_teaser(fragment: str) -> str:
+    """A one-line push hook derived from the digest — the first bolded entity.
+
+    Deterministic (no extra LLM call): bullets bold their key entity with
+    <strong>, so the first non-"Edge" bold is a good stand-in for the day's top
+    item. Falls back to a generic line if nothing usable is found.
+    """
+    for match in re.finditer(r"<strong>(.*?)</strong>", fragment, flags=re.DOTALL):
+        text = re.sub(r"<[^>]+>", "", match.group(1))
+        text = text.replace("→", "").strip().rstrip(":").strip()
+        if text and "edge" not in text.lower() and len(text) > 1:
+            teaser = f"Today: {text}"
+            return teaser[:120]
+    return "Your morning brief is ready ☕"
+
+
 def _clean_fragment(text: str) -> str:
     """Strip markdown code fences and stray html/body wrappers if present."""
     text = text.strip()
