@@ -51,6 +51,22 @@
       <button id="editInterestsBtn" class="secondary">Edit interests</button>
     </section>
 
+    <!-- Onboarding: install + notifications -->
+    <section id="view-notify" class="card hidden">
+      <h1>Get it on your phone 🔔</h1>
+      <p class="muted">Install the app and enable notifications to get a tap-to-read
+        teaser each morning. (Email still arrives if you turned it on.)</p>
+      <div id="iosInstall" class="section-preview hidden">
+        <div class="title">On iPhone/iPad</div>
+        <div class="guidance">Tap the <strong>Share</strong> button, then
+          <strong>Add to Home Screen</strong>. Open the app from your home screen,
+          then come back here to enable notifications.</div>
+      </div>
+      <button id="installBtn" class="secondary hidden">Install app</button>
+      <button id="enablePushBtn">Enable notifications</button>
+      <button id="skipNotifyBtn" class="secondary">Maybe later</button>
+    </section>
+
     <!-- Today -->
     <section id="view-today" class="card hidden">
       <h1 id="todayTitle">Today</h1>
@@ -78,6 +94,12 @@
         <input id="settingsWantsEmail" type="checkbox" />
         <label for="settingsWantsEmail">Email me the brief</label>
       </div>
+      <div class="toggle">
+        <input id="settingsWantsPush" type="checkbox" />
+        <label for="settingsWantsPush">Push notifications</label>
+      </div>
+      <button id="settingsEnablePushBtn" class="secondary">Enable notifications on this device</button>
+      <button id="settingsInstallBtn" class="secondary hidden">Install app</button>
       <button id="saveSettingsBtn">Save settings</button>
     </section>
   </div>

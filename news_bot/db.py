@@ -91,3 +91,16 @@ def insert_digest(user_id: str, local_date: str, html: str,
         extra_headers={"Prefer": "resolution=ignore-duplicates,return=representation"},
     )
     return bool(rows)
+
+
+def fetch_push_subscriptions(user_id: str) -> list[dict[str, Any]]:
+    """All Web Push endpoints registered for a user (may be several devices)."""
+    return _request(
+        "GET", "push_subscriptions",
+        params={"user_id": f"eq.{user_id}", "select": "*"},
+    )
+
+
+def delete_push_subscription(sub_id: int) -> None:
+    """Remove a subscription row (called when a push service returns 404/410)."""
+    _request("DELETE", "push_subscriptions", params={"id": f"eq.{sub_id}"})
