@@ -61,9 +61,20 @@ let profile = null;
 async function loadProfile() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return null;
-  const { data, error } = await sb
-    .from("profiles").select("*").eq("id", user.id).single();
-  if (error) { toast("Couldn't load profile", true); return null; }
+  // maybeSingle: zero rows returns null (not an error), so a brand-new user
+  // without a profile row doesn't hard-fail.
+  let { data, error } = await sb
+    .from("profiles").select("*").eq("id", user.id).maybeSingle();
+  if (error) { toast(`Couldn't load profile: ${error.message}`, true); return null; }
+  // Self-heal: if the DB trigger never created a row, create it here. RLS's
+  // "own profile" policy allows inserting a row where id = auth.uid().
+  if (!data) {
+    const upsert = await sb.from("profiles")
+      .upsert({ id: user.id, email: user.email, active: true }, { onConflict: "id" })
+      .select("*").single();
+    if (upsert.error) { toast(`Couldn't create profile: ${upsert.error.message}`, true); return null; }
+    data = upsert.data;
+  }
   profile = data;
   return data;
 }
