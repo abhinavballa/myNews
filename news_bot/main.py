@@ -20,6 +20,16 @@ from news_bot.generate import build_teaser, generate_digest_html
 from news_bot.profiles import Profile, select_due_profiles
 
 
+def _mask_email(email: str | None) -> str:
+    """Partially mask an address for CI logs (the repo may be public), while
+    keeping enough to confirm which account: 'abhinav...@gmail.com'."""
+    if not email or "@" not in email:
+        return repr(email)
+    local, _, domain = email.partition("@")
+    shown = local[:3] if len(local) > 3 else local[:1]
+    return f"{shown}...@{domain}"
+
+
 def _human_date(local_date: str) -> str:
     d = datetime.date.fromisoformat(local_date)
     return d.strftime("%A, %B %d, %Y")
@@ -50,10 +60,17 @@ def deliver(profile: Profile, local_date: str) -> None:
     if profile.wants_email and profile.email:
         html = build_email_html(fragment, _human_date(local_date))
         send_email(html, profile.email, _subject_date(local_date))
-        print(f"  [{profile.id}] emailed {profile.email}.")
+        print(f"  [{profile.id}] EMAILED -> {_mask_email(profile.email)}")
+    elif not profile.wants_email:
+        print(f"  [{profile.id}] NOT emailing: wants_email is False "
+              f"(enable 'Email me the brief' in Settings).")
+    elif not profile.email:
+        print(f"  [{profile.id}] NOT emailing: profile has no email address.")
 
     if profile.wants_push:
         _deliver_push(profile, build_teaser(fragment))
+    else:
+        print(f"  [{profile.id}] NOT pushing: wants_push is False.")
 
 
 def _deliver_push(profile: Profile, teaser: str) -> None:
@@ -82,7 +99,18 @@ def _deliver_push(profile: Profile, teaser: str) -> None:
 def run(now_utc: datetime.datetime, only_user: str | None = None) -> int:
     rows = db.fetch_active_profiles()
     profiles = [Profile.from_row(r) for r in rows]
-    print(f"Fetched {len(profiles)} active profile(s).")
+    print(f"[{now_utc:%Y-%m-%d %H:%M} UTC] Fetched {len(profiles)} active profile(s).")
+
+    # One line per profile so the logs show WHY someone is or isn't due, and
+    # which channels they'd receive on — the quickest way to debug "no email".
+    for p in profiles:
+        local = p.local_datetime(now_utc)
+        print(
+            f"  - {p.id} email={_mask_email(p.email)} "
+            f"tz={p.timezone} local={local:%H:%M} "
+            f"deliver_hour={p.delivery_hour} due={p.is_due_hour(now_utc)} "
+            f"wants_email={p.wants_email} wants_push={p.wants_push}"
+        )
 
     if only_user:
         due = [p for p in profiles if p.id == only_user]
