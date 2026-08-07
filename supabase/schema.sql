@@ -18,7 +18,7 @@ create table if not exists profiles (
   delivery_hour  int  default 8,                         -- 0-23, user's local time
   timezone       text default 'America/Los_Angeles',
   wants_push     boolean default true,
-  wants_email    boolean default false,
+  wants_email    boolean default true,
   active         boolean default true,
   created_at     timestamptz default now()
 );
