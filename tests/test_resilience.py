@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from news_bot.generate import (
+    _is_model_unavailable,
     _is_transient,
     generate_content_resilient,
     model_chain,
@@ -41,6 +42,26 @@ def test_message_only_503_is_transient():
 def test_client_error_is_not_transient():
     assert not _is_transient(FakeError(code=400))
     assert not _is_transient(ValueError("bad schema"))
+
+
+# --- model-not-found classification ---------------------------------------
+
+def test_404_is_model_unavailable():
+    assert _is_model_unavailable(FakeError(code=404))
+
+
+def test_not_found_status_is_model_unavailable():
+    assert _is_model_unavailable(FakeError(status="NOT_FOUND"))
+
+
+def test_model_not_found_message_is_model_unavailable():
+    exc = Exception("404 NOT_FOUND. models/gemini-3.5-pro is not found for API version")
+    assert _is_model_unavailable(exc)
+
+
+def test_model_unavailable_is_not_transient():
+    # A missing model must NOT be retried on the same model.
+    assert not _is_transient(FakeError(code=404, status="NOT_FOUND"))
 
 
 # --- fallback loop --------------------------------------------------------
@@ -104,6 +125,36 @@ def test_raises_last_error_when_all_exhausted():
             attempts_per_model=2, sleep_fn=lambda s: None,
         )
     assert client.calls == ["flash", "flash", "pro", "pro"]
+
+
+def test_model_not_found_skips_to_next_model():
+    ok = SimpleNamespace(text="brief")
+    # Primary is a valid model that succeeds; if it 404s we still move on.
+    client = FakeClient([FakeError(code=404, status="NOT_FOUND"), ok])
+    out = generate_content_resilient(
+        client, "p", None, models=["bad-model", "good-model"],
+        attempts_per_model=2, sleep_fn=lambda s: None,
+    )
+    assert out is ok
+    assert client.calls == ["bad-model", "good-model"]  # no retry on the 404
+
+
+def test_all_models_missing_raises_last():
+    client = FakeClient([FakeError(code=404), FakeError(code=404)])
+    with pytest.raises(FakeError):
+        generate_content_resilient(
+            client, "p", None, models=["bad1", "bad2"],
+            attempts_per_model=2, sleep_fn=lambda s: None,
+        )
+    assert client.calls == ["bad1", "bad2"]  # one attempt each, then give up
+
+
+def test_model_chain_default_fallback_is_valid_model(monkeypatch):
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    monkeypatch.delenv("GEMINI_FALLBACK_MODELS", raising=False)
+    chain = model_chain()
+    assert chain[0] == "gemini-3.5-flash"
+    assert "gemini-3.5-pro" not in chain  # the invalid name is gone
 
 
 def test_model_chain_dedups_and_orders(monkeypatch):

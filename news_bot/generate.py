@@ -36,10 +36,27 @@ def _is_transient(exc: Exception) -> bool:
     return any(f" {c} " in f" {text} " for c in map(str, _RETRYABLE_CODES))
 
 
+def _is_model_unavailable(exc: Exception) -> bool:
+    """True when a model name is unknown/unsupported (404 NOT_FOUND).
+
+    Distinct from a transient error: retrying the same model won't help, but the
+    *next* model in the chain might work, so we skip rather than abort. This
+    keeps a stale/misconfigured model name from killing an otherwise-fine run.
+    """
+    code = getattr(exc, "code", None)
+    if code == 404:
+        return True
+    status = getattr(exc, "status", None)
+    if isinstance(status, str) and status.upper() == "NOT_FOUND":
+        return True
+    text = str(exc).upper()
+    return "NOT_FOUND" in text or "IS NOT FOUND" in text or "NOT SUPPORTED" in text
+
+
 def model_chain() -> list[str]:
     """Primary model first, then fallbacks (GEMINI_FALLBACK_MODELS, comma-sep)."""
     primary = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
-    fallbacks = os.environ.get("GEMINI_FALLBACK_MODELS", "gemini-3.5-pro")
+    fallbacks = os.environ.get("GEMINI_FALLBACK_MODELS", "gemini-3.6-flash")
     chain = [primary]
     for m in (x.strip() for x in fallbacks.split(",")):
         if m and m not in chain:
@@ -54,8 +71,10 @@ def generate_content_resilient(client, prompt: str, config, *,
                                sleep_fn=time.sleep):
     """generate_content with per-model retries and cross-model fallback.
 
-    Non-transient errors raise immediately; transient ones retry the same model,
-    then move to the next model in the chain. Raises the last error if all fail.
+    Per model: retry on transient errors. On a "model not found" (404), skip to
+    the next model immediately (retrying won't help; a different model might).
+    Any other error raises immediately. If every model is exhausted, raises the
+    last error seen.
     """
     chain = models or model_chain()
     last_exc: Exception | None = None
@@ -66,6 +85,9 @@ def generate_content_resilient(client, prompt: str, config, *,
                     model=model, contents=prompt, config=config
                 )
             except Exception as exc:  # noqa: BLE001 - classify then re-raise
+                if _is_model_unavailable(exc):
+                    last_exc = exc
+                    break  # this model is unusable; try the next one
                 if not _is_transient(exc):
                     raise
                 last_exc = exc

@@ -131,4 +131,6 @@ idempotency.
 - **More depth:** set `GEMINI_MODEL=gemini-3.5-pro`.
 - **Resilience:** on a transient Gemini error (503 overload, 429), the worker
   retries, then falls back to the models in `GEMINI_FALLBACK_MODELS`
-  (comma-separated, default `gemini-3.5-pro`) before skipping a user for the day.
+  (comma-separated, default `gemini-3.6-flash`) before skipping a user for the
+  day. A "model not found" (404) skips to the next model rather than failing, so
+  a stale model name never kills a run.
