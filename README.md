@@ -16,9 +16,12 @@ profile, and an in-app reader/archive. Web push is Phase 3. See
 
 - The worker (`news_bot/main.py`) runs **hourly**.
 - Each run fetches all `active` profiles, keeps the ones whose current **local**
-  hour equals their `delivery_hour` and who have **no digest yet** for their
-  local date, then generates and delivers.
-- A `UNIQUE (user_id, local_date)` constraint makes re-runs and delayed
+  hour is **at or past** their `delivery_hour` and who have **no digest yet** for
+  their local date, then generates and delivers.
+- The `>=` (not `==`) window matters: GitHub Actions drops/delays scheduled runs
+  under load, so the run landing in the exact delivery hour isn't guaranteed. Any
+  later run that day catches up a missed window.
+- A `UNIQUE (user_id, local_date)` constraint makes re-runs and catch-up
   schedules idempotent — nobody is double-delivered.
 
 ## Setup (one time)

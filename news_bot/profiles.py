@@ -45,12 +45,19 @@ class Profile:
         return self.local_datetime(now_utc).date().isoformat()
 
     def is_due_hour(self, now_utc: datetime.datetime) -> bool:
-        """True when the user's current local hour equals their delivery hour.
+        """True when the user's current local hour is AT OR PAST their delivery
+        hour (and, implicitly, still the same local day).
+
+        Deliberately `>=`, not `==`. GitHub Actions drops/delays scheduled runs
+        under load, so the single run landing in the exact delivery hour is not
+        guaranteed to happen. With `>=`, any run later that day catches up a
+        missed window; the `UNIQUE (user_id, local_date)` digest constraint
+        still guarantees exactly one delivery per day.
 
         Correct across DST: 8am local is 15:00 UTC in PDT and 16:00 UTC in PST,
         and this comparison follows the offset the zone actually has at now_utc.
         """
-        return self.local_datetime(now_utc).hour == self.delivery_hour
+        return self.local_datetime(now_utc).hour >= self.delivery_hour
 
 
 def validate_compiled_profile(obj: Any) -> None:
@@ -86,7 +93,8 @@ def select_due_profiles(
     now_utc: datetime.datetime,
     already_delivered: set[str],
 ) -> list[Profile]:
-    """Users at their delivery hour with no digest yet for their local date.
+    """Users at or past their delivery hour with no digest yet for their local
+    date (see is_due_hour for why `>=`, not `==`).
 
     `already_delivered` holds "{id}:{local_date}" keys for digests that already
     exist, so a re-run in the same local date selects nobody.
