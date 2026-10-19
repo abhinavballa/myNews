@@ -119,13 +119,19 @@ THE BRIEF (HTML):
 Judge adherence only — not whether the news is true. Check: does each section \
 deliver what its guidance asks for, are the bullets aimed at this reader, and do \
 the Edge clauses give specific moves for the stated angle rather than generic \
-filler? Missing sections or off-topic content count against adherence."""
+filler? Missing sections or off-topic content count against adherence.
 
-ADHERENCE_CHOICES = {
-    "adherent": (1.0, "Follows the configuration closely; Edge clauses are specific to the angle."),
-    "partially_adherent": (0.5, "Mostly on target, with weak or off-topic sections or generic Edge clauses."),
-    "not_adherent": (0.0, "Largely ignores the configuration."),
-}
+Answer with exactly one of these labels (not pass/fail):
+- adherent: follows the configuration closely; Edge clauses are specific to the angle.
+- partially_adherent: mostly on target, but some sections are weak or off-topic, \
+or the Edge clauses are generic.
+- not_adherent: largely ignores the configuration."""
+
+# Plain {label: score} on purpose. Label descriptions make the classifier emit a
+# JSON-Schema oneOf/const, which Gemini's response_schema doesn't enforce — live
+# runs got back "PASS"/"FAIL". Plain scores emit an enum, which Gemini does
+# enforce; the label meanings live in the prompt above instead.
+ADHERENCE_CHOICES = {"adherent": 1.0, "partially_adherent": 0.5, "not_adherent": 0.0}
 
 
 def _format_sections(compiled_profile: dict[str, Any]) -> str:

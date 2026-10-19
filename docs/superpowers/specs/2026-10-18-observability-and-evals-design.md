@@ -82,5 +82,13 @@ pandas; keeping it out of `requirements.txt` keeps the Vercel functions small).
 wiring with a fake, failures never raise) and `tests/test_tracing.py` (no-op when off;
 with the OTel SDK: one trace tree per user, attributes, error status, annotations on
 the root span, 404 retry). Verified end to end against a local `phoenix serve`:
-spans, the instrumentor's LLM span, and both code-eval annotations arrived. The LLM
-judge has not been run against the live Gemini API yet.
+spans, the instrumentor's LLM span, and both code-eval annotations arrived.
+
+First production run (2026-10-19, 3 users) surfaced a third fix: the judge returned
+`PASS`/`FAIL` instead of its labels. With label descriptions, `create_classifier`
+emits a JSON-Schema `oneOf`/`const` for the label, which Gemini's `response_schema`
+doesn't enforce, and the prompt never named the labels. Now the choices are plain
+`{label: score}` (emits an `enum`, which Gemini enforces) and the prompt lists the
+labels with their meanings. That run also showed the code evals working: grounding
+coverage of 36% for two briefs (15–22 sources) and **0% for one brief generated with
+no search at all** — exactly the case the eval exists to catch.

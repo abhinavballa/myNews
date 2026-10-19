@@ -148,6 +148,29 @@ def test_template_placeholders_match_the_inputs():
         assert "{{" + name + "}}" in evals.ADHERENCE_TEMPLATE
 
 
+def test_prompt_names_every_allowed_label():
+    """Gemini only returns valid labels if it's told them (see ADHERENCE_CHOICES)."""
+    for label in evals.ADHERENCE_CHOICES:
+        assert f"- {label}:" in evals.ADHERENCE_TEMPLATE
+
+
+def test_judge_schema_constrains_the_label_with_an_enum(monkeypatch):
+    """oneOf/const isn't enforced by Gemini; an enum is."""
+    pytest.importorskip("phoenix.evals")
+    import phoenix.evals.llm.adapters.google.adapter as ga
+    captured = {}
+
+    def fake_generate_object(self, prompt, schema, **kw):
+        captured["schema"] = schema
+        return {"label": "adherent", "explanation": "x"}
+    monkeypatch.setattr(ga.GoogleGenAIAdapter, "generate_object", fake_generate_object)
+    monkeypatch.setenv("GEMINI_API_KEY", "test")
+
+    r = evals.profile_adherence(PROFILE, BRIEF)
+    assert captured["schema"]["properties"]["label"]["enum"] == list(evals.ADHERENCE_CHOICES)
+    assert (r.label, r.score) == ("adherent", 1.0)
+
+
 # --- runner -----------------------------------------------------------------
 
 def test_runner_skips_the_judge_when_disabled():
