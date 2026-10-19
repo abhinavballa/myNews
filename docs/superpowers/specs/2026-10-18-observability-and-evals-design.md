@@ -1,0 +1,86 @@
+# Observability (Phoenix tracing) and brief evals
+
+**Date:** 2026-10-18
+**Status:** implemented
+
+## Problem
+
+The worker's only visibility was CI log lines. There was no record of what each
+Gemini call cost (tokens), how long it took, what search queries grounding ran, or
+whether a brief was any good — so a quality regression (a prompt change, a silent
+model fallback, a bad profile edit) would only surface as a user complaint.
+
+## What this builds
+
+### Tracing (`news_bot/tracing.py`)
+
+- `phoenix.otel.register()` + the OpenInference **Google GenAI instrumentor**: every
+  Gemini call becomes an LLM span with prompt, output, model, token counts, latency.
+- Our own spans make each user's run one trace tree:
+  `deliver` → `generate_digest` (search queries, source count, model, prompt version)
+  → Gemini LLM span; `send_email` / `send_push`; `evaluate`.
+- **Off unless `PHOENIX_COLLECTOR_ENDPOINT` is set.** Every helper is a no-op when off
+  or when the packages are missing, so the Vercel functions and tests don't depend on
+  them. Tracing setup failures are logged and never stop a delivery run.
+- `flush()` runs before the process exits (GitHub Actions kills it on return), then
+  sends queued eval annotations.
+
+Two things found by running against a real Phoenix server:
+
+1. Given a bare base URL, `register()` falls back to gRPC on :4317. We pass the
+   OTLP/HTTP `/v1/traces` route explicitly (`traces_endpoint()`).
+2. Phoenix ingests spans asynchronously and answers **404** to an annotation whose
+   span isn't stored yet. Annotation sends retry 404s with backoff (1, 2, 4, 8s).
+
+### Evals (`news_bot/evals.py`)
+
+Run after the brief is delivered, per user:
+
+| Eval | Kind | What it measures |
+|---|---|---|
+| `profile_adherence` | LLM judge (`phoenix.evals.create_classifier`, Gemini) | Did the brief follow the persona, section guidance, and Edge angle? adherent 1.0 / partial 0.5 / not 0.0 |
+| `grounding_coverage` | Code | Share of the brief's bytes that Gemini attributed to a search source (merged `grounding_supports` spans / text length) |
+| `section_structure` | Code | Share of profile sections present as `<h2>`, in order |
+
+Results are printed to the log and attached to the user's `deliver` span as Phoenix
+annotations (LLM / CODE annotator kind), so they show as columns in the trace list.
+
+### Why not Phoenix's Hallucination / Faithfulness evaluator
+
+Both judge a response against source *text*. Gemini's Google Search grounding returns
+only each source's title and URI, plus which spans of the response each source
+supports — never page content. A judge given titles would mark every real number as
+unsupported. The citation map is exact, so `grounding_coverage` uses it directly.
+
+**Limit:** coverage flags text with no source behind it; it cannot catch a wrong
+number that *is* attributed to a source. Catching that would need fetching the
+cited pages and running a faithfulness judge over them — real cost and latency per
+brief, deferred until there's evidence it's needed.
+
+### Why record-only, not a blocking gate
+
+Evals run after delivery and never block it. A gate (regenerate or hold a failing
+brief) doubles the Gemini cost on failures and risks a user getting nothing because
+a judge misfired. The scores come first; with a few weeks of data it's clear which
+threshold, if any, is worth gating on.
+
+## Config
+
+| Where | Name | Purpose |
+|---|---|---|
+| GitHub secret | `PHOENIX_COLLECTOR_ENDPOINT` | Phoenix base URL (e.g. `https://app.phoenix.arize.com/s/<space>`) — turns tracing on |
+| GitHub secret | `PHOENIX_API_KEY` | Phoenix Cloud API key |
+| GitHub variable | `MYNEWS_LLM_EVALS` | `off` skips the LLM judge (1 extra Gemini call per brief) |
+| env (optional) | `PHOENIX_PROJECT_NAME`, `EVAL_MODEL` | default `mynews`, `gemini-3.5-flash` |
+
+Worker-only dependencies live in `requirements-worker.txt` (phoenix-evals pulls in
+pandas; keeping it out of `requirements.txt` keeps the Vercel functions small).
+
+## Testing
+
+`tests/test_evals.py` (grounding extraction, coverage math, section order, judge
+wiring with a fake, failures never raise) and `tests/test_tracing.py` (no-op when off;
+with the OTel SDK: one trace tree per user, attributes, error status, annotations on
+the root span, 404 retry). Verified end to end against a local `phoenix serve`:
+spans, the instrumentor's LLM span, and both code-eval annotations arrived. The LLM
+judge has not been run against the live Gemini API yet.

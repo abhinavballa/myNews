@@ -69,7 +69,7 @@ and, for feedback,
 ## Run locally (optional)
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-worker.txt
 export GEMINI_API_KEY=... GMAIL_ADDRESS=... GMAIL_APP_PASSWORD=...
 export SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=...
 python -m news_bot.main --user <your-profile-uuid>   # force one user now
@@ -126,18 +126,42 @@ screen, and the permission prompt must be triggered by a tap — the onboarding
 flow is ordered around this. Dead endpoints (HTTP 404/410) are pruned
 automatically on the next send.
 
+## Observability and evals
+
+With Phoenix configured, every worker run is traced: each user gets one trace
+(deliver → generate → the Gemini call with tokens/latency → email/push →
+evaluate). After each brief is sent, three evals score it and attach the scores
+to that trace:
+
+- `profile_adherence` — LLM judge (Gemini via `phoenix.evals`): did the brief
+  follow the user's profile?
+- `grounding_coverage` — how much of the brief Gemini tied to a Google Search
+  source (text with no source is where invented facts live).
+- `section_structure` — are the profile's sections all there, in order?
+
+Evals only record; they never block or delay a brief. Without Phoenix they
+still run and print to the Actions log.
+
+**Setup:** create a Phoenix project (e.g. free Phoenix Cloud at
+https://app.phoenix.arize.com), then add GitHub secrets
+`PHOENIX_COLLECTOR_ENDPOINT` (the base URL Phoenix shows you) and
+`PHOENIX_API_KEY`. Optional repo variable `MYNEWS_LLM_EVALS=off` skips the LLM
+judge. Details: [`docs/superpowers/specs/2026-10-18-observability-and-evals-design.md`](docs/superpowers/specs/2026-10-18-observability-and-evals-design.md).
+
 ## Tests
 
 ```bash
 pip install -r requirements-dev.txt
+pip install -r requirements-worker.txt   # optional: also runs the tracing tests
 pytest
 ```
 
 Covers due-user selection across timezones and DST boundaries (including the
 catch-up window), `compiled_profile` schema validation, prompt compilation,
 interests-compilation parsing, digest idempotency and attribution, Gemini
-retry/fallback, push, and the feedback flow (edit guardrails, feedback never
-lost on a failed edit, no double-apply). The Gemini call itself is stubbed.
+retry/fallback, push, the feedback flow (edit guardrails, feedback never lost
+on a failed edit, no double-apply), the evals, and tracing. Gemini calls are
+stubbed.
 
 ## Customize
 

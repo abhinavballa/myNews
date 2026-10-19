@@ -192,6 +192,56 @@ class Digest(NamedTuple):
     html: str
     model: str
     prompt_version: str
+    # What Google Search grounding returned: see extract_grounding(). Used by
+    # the evals (grounding coverage) and recorded on the trace.
+    grounding: dict[str, Any] | None = None
+
+
+def _get(obj: Any, name: str) -> Any:
+    """Attribute or dict access, so fakes in tests can be plain dicts."""
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return getattr(obj, name, None)
+
+
+def extract_grounding(response: Any) -> dict[str, Any]:
+    """Pull the search-grounding metadata off a Gemini response.
+
+    Returns {"queries": [...], "sources": [{"title", "uri"}],
+             "supports": [(start, end), ...], "text_length": int}.
+    `supports` are spans of the response text that Gemini attributed to at
+    least one source. Grounding gives titles/URIs only — never page text — so
+    this is a citation map, not the evidence itself.
+    """
+    candidates = _get(response, "candidates") or []
+    meta = _get(candidates[0], "grounding_metadata") if candidates else None
+    text = _get(response, "text") or ""
+
+    sources = []
+    for chunk in _get(meta, "grounding_chunks") or []:
+        web = _get(chunk, "web")
+        if web is not None:
+            sources.append({"title": _get(web, "title") or "", "uri": _get(web, "uri") or ""})
+
+    supports = []
+    for support in _get(meta, "grounding_supports") or []:
+        segment = _get(support, "segment")
+        if segment is None or not (_get(support, "grounding_chunk_indices") or []):
+            continue
+        start = _get(segment, "start_index") or 0
+        end = _get(segment, "end_index")
+        if end is not None and end > start:
+            supports.append((int(start), int(end)))
+
+    return {
+        "queries": list(_get(meta, "web_search_queries") or []),
+        "sources": sources,
+        "supports": supports,
+        # Gemini reports segment offsets in UTF-8 bytes.
+        "text_length": len(text.encode("utf-8")),
+    }
 
 
 def generate_digest(compiled_profile: dict[str, Any], date: str) -> Digest:
@@ -218,7 +268,8 @@ def generate_digest(compiled_profile: dict[str, Any], date: str) -> Digest:
         raise RuntimeError(
             f"Gemini returned too little content ({len(fragment)} chars): {fragment!r}"
         )
-    return Digest(html=fragment, model=model, prompt_version=PROMPT_VERSION)
+    return Digest(html=fragment, model=model, prompt_version=PROMPT_VERSION,
+                  grounding=extract_grounding(response))
 
 
 def generate_digest_html(compiled_profile: dict[str, Any], date: str) -> str:

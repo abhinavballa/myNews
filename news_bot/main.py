@@ -1,8 +1,9 @@
 """Worker entry point: deliver each due user's personalized brief.
 
 Runs hourly (GitHub Actions cron `0 * * * *`). Each run fetches active
-profiles, keeps the ones whose current local hour equals their delivery hour
-and who have no digest yet for their local date, then generates + delivers.
+profiles, keeps the ones whose current local hour is at or past their delivery
+hour and who have no digest yet for their local date, then generates, delivers,
+and evaluates. With Phoenix configured, each user's run is one trace.
 
 Usage:
     python -m news_bot.main                 # normal hourly run
@@ -14,7 +15,7 @@ from __future__ import annotations
 import datetime
 import sys
 
-from news_bot import db, push
+from news_bot import db, evals, push, tracing
 from news_bot.email_send import build_email_html, send_email
 from news_bot.generate import build_teaser, generate_digest
 from news_bot.profiles import Profile, select_due_profiles
@@ -41,13 +42,33 @@ def _subject_date(local_date: str) -> str:
 
 
 def deliver(profile: Profile, local_date: str) -> None:
-    """Generate, persist, and deliver one user's brief. Idempotent per date."""
+    """Generate, persist, deliver, and evaluate one user's brief (one trace)."""
+    with tracing.span("deliver", "CHAIN", **{
+        "user.id": profile.id, "mynews.local_date": local_date,
+        "mynews.profile_version": profile.active_version,
+    }) as root:
+        _deliver(profile, local_date, root)
+
+
+def _deliver(profile: Profile, local_date: str, root) -> None:
     if db.digest_exists(profile.id, local_date):
         print(f"  [{profile.id}] already has a digest for {local_date}; skipping.")
+        tracing.set_attributes(root, **{"mynews.outcome": "already_delivered"})
         return
 
     print(f"  [{profile.id}] generating digest for {local_date}...")
-    digest = generate_digest(profile.compiled_profile, _human_date(local_date))
+    with tracing.span("generate_digest", "CHAIN", **{
+        "input.value": _human_date(local_date),
+    }) as gen:
+        digest = generate_digest(profile.compiled_profile, _human_date(local_date))
+        grounding = digest.grounding or {}
+        tracing.set_attributes(gen, **{
+            "output.value": digest.html,
+            "llm.model_name": digest.model,
+            "mynews.prompt_version": digest.prompt_version,
+            "mynews.search_queries": grounding.get("queries") or None,
+            "mynews.source_count": len(grounding.get("sources") or []),
+        })
     fragment = digest.html
     print(f"  [{profile.id}] generated {len(fragment)} chars "
           f"(model={digest.model}, profile v{profile.active_version}).")
@@ -66,11 +87,13 @@ def deliver(profile: Profile, local_date: str) -> None:
     )
     if not inserted:
         print(f"  [{profile.id}] digest row already existed; not delivering.")
+        tracing.set_attributes(root, **{"mynews.outcome": "already_delivered"})
         return
 
     if profile.wants_email and profile.email:
-        html = build_email_html(fragment, _human_date(local_date))
-        send_email(html, profile.email, _subject_date(local_date))
+        with tracing.span("send_email", "TOOL"):
+            html = build_email_html(fragment, _human_date(local_date))
+            send_email(html, profile.email, _subject_date(local_date))
         print(f"  [{profile.id}] EMAILED -> {_mask_email(profile.email)}")
     elif not profile.wants_email:
         print(f"  [{profile.id}] NOT emailing: wants_email is False "
@@ -79,9 +102,24 @@ def deliver(profile: Profile, local_date: str) -> None:
         print(f"  [{profile.id}] NOT emailing: profile has no email address.")
 
     if profile.wants_push:
-        _deliver_push(profile, teaser)
+        with tracing.span("send_push", "TOOL"):
+            _deliver_push(profile, teaser)
     else:
         print(f"  [{profile.id}] NOT pushing: wants_push is False.")
+
+    tracing.set_attributes(root, **{"mynews.outcome": "delivered"})
+    _evaluate(profile, digest, root)
+
+
+def _evaluate(profile: Profile, digest, root) -> None:
+    """Score the brief after it's sent. Never raises, never blocks delivery."""
+    with tracing.span("evaluate", "EVALUATOR"):
+        results = evals.run_evals(profile.compiled_profile, digest.html, digest.grounding)
+    for r in results:
+        score = "n/a" if r.score is None else f"{r.score:.2f}"
+        print(f"  [{profile.id}] eval {r.name}: {score} ({r.label}) — {r.explanation[:160]}")
+        tracing.annotate(root, r.name, kind=r.kind, label=r.label,
+                         score=r.score, explanation=r.explanation)
 
 
 def _deliver_push(profile: Profile, teaser: str) -> None:
@@ -153,8 +191,12 @@ def main() -> int:
             print("--user requires a uuid argument.")
             return 2
 
+    tracing.init_tracing()
     now_utc = datetime.datetime.now(datetime.timezone.utc)
-    return run(now_utc, only_user=only_user)
+    try:
+        return run(now_utc, only_user=only_user)
+    finally:
+        tracing.flush()  # export spans + eval annotations before the job exits
 
 
 if __name__ == "__main__":

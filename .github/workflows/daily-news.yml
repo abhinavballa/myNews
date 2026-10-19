@@ -24,7 +24,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-worker.txt
 
       - name: Run digest worker
         env:
@@ -38,6 +38,12 @@ jobs:
           # Base URL of the PWA. Adds a "how was this brief?" link to the email
           # footer; the link is omitted entirely when this is unset.
           APP_URL: ${{ vars.APP_URL }}
+          # Phoenix tracing + eval annotations. Tracing stays off when the
+          # endpoint is unset; evals still run and print to the log.
+          PHOENIX_COLLECTOR_ENDPOINT: ${{ secrets.PHOENIX_COLLECTOR_ENDPOINT }}
+          PHOENIX_API_KEY: ${{ secrets.PHOENIX_API_KEY }}
+          # Set to "off" to skip the LLM judge (one extra Gemini call per brief).
+          MYNEWS_LLM_EVALS: ${{ vars.MYNEWS_LLM_EVALS }}
         run: |
           if [ -n "${{ inputs.user }}" ]; then
             python -m news_bot.main --user "${{ inputs.user }}"
