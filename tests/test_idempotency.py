@@ -6,7 +6,12 @@ from __future__ import annotations
 import datetime
 
 import news_bot.main as worker
+from news_bot.generate import Digest
 from news_bot.profiles import Profile
+
+
+def fake_digest(*_args, **_kwargs):
+    return Digest(html="fragment", model="gemini-3.5-flash", prompt_version="test")
 
 
 def make_profile():
@@ -22,8 +27,9 @@ def test_deliver_skips_when_digest_exists(monkeypatch):
     calls = {"generate": 0, "insert": 0, "send": 0}
 
     monkeypatch.setattr(worker.db, "digest_exists", lambda uid, d: True)
-    monkeypatch.setattr(worker, "generate_digest_html",
-                        lambda *a, **k: calls.__setitem__("generate", calls["generate"] + 1) or "x")
+    monkeypatch.setattr(worker, "generate_digest",
+                        lambda *a, **k: calls.__setitem__("generate", calls["generate"] + 1)
+                        or fake_digest())
     monkeypatch.setattr(worker.db, "insert_digest",
                         lambda *a, **k: calls.__setitem__("insert", calls["insert"] + 1) or True)
     monkeypatch.setattr(worker, "send_email",
@@ -40,7 +46,7 @@ def test_deliver_does_not_send_when_insert_loses_race(monkeypatch):
     sent = []
 
     monkeypatch.setattr(worker.db, "digest_exists", lambda uid, d: False)
-    monkeypatch.setattr(worker, "generate_digest_html", lambda *a, **k: "fragment")
+    monkeypatch.setattr(worker, "generate_digest", fake_digest)
     monkeypatch.setattr(worker.db, "insert_digest", lambda *a, **k: False)  # duplicate
     monkeypatch.setattr(worker, "send_email", lambda *a, **k: sent.append(a))
 
@@ -53,7 +59,7 @@ def test_deliver_generates_and_sends_on_first_run(monkeypatch):
     sent = []
 
     monkeypatch.setattr(worker.db, "digest_exists", lambda uid, d: False)
-    monkeypatch.setattr(worker, "generate_digest_html", lambda *a, **k: "fragment")
+    monkeypatch.setattr(worker, "generate_digest", fake_digest)
     monkeypatch.setattr(worker.db, "insert_digest", lambda *a, **k: True)
     monkeypatch.setattr(worker, "send_email",
                         lambda html, recipient, subject_date: sent.append(recipient))

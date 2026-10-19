@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import re
 import time
-from typing import Any
+from typing import Any, NamedTuple
 
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 
@@ -64,26 +64,26 @@ def model_chain() -> list[str]:
     return chain
 
 
-def generate_content_resilient(client, prompt: str, config, *,
-                               models: list[str] | None = None,
-                               attempts_per_model: int = 2,
-                               sleep_seconds: float = 3.0,
-                               sleep_fn=time.sleep):
-    """generate_content with per-model retries and cross-model fallback.
+def generate_content_with_model(client, prompt: str, config, *,
+                                models: list[str] | None = None,
+                                attempts_per_model: int = 2,
+                                sleep_seconds: float = 3.0,
+                                sleep_fn=time.sleep):
+    """Like generate_content_resilient, but also reports WHICH model answered.
 
-    Per model: retry on transient errors. On a "model not found" (404), skip to
-    the next model immediately (retrying won't help; a different model might).
-    Any other error raises immediately. If every model is exhausted, raises the
-    last error seen.
+    Returns (response, model). The model name is needed on the digest row: a
+    silent fallback from the primary to a different model changes the output, so
+    without recording it a shift in user ratings looks like a profile effect.
     """
     chain = models or model_chain()
     last_exc: Exception | None = None
     for model in chain:
         for attempt in range(attempts_per_model):
             try:
-                return client.models.generate_content(
+                response = client.models.generate_content(
                     model=model, contents=prompt, config=config
                 )
+                return response, model
             except Exception as exc:  # noqa: BLE001 - classify then re-raise
                 if _is_model_unavailable(exc):
                     last_exc = exc
@@ -95,6 +95,23 @@ def generate_content_resilient(client, prompt: str, config, *,
                     sleep_fn(sleep_seconds)
     assert last_exc is not None
     raise last_exc
+
+
+def generate_content_resilient(client, prompt: str, config, **kwargs):
+    """generate_content with per-model retries and cross-model fallback.
+
+    Per model: retry on transient errors. On a "model not found" (404), skip to
+    the next model immediately (retrying won't help; a different model might).
+    Any other error raises immediately. If every model is exhausted, raises the
+    last error seen.
+    """
+    response, _model = generate_content_with_model(client, prompt, config, **kwargs)
+    return response
+
+# Bump whenever PROMPT_TEMPLATE changes substantively. Recorded on every digest
+# so a shift in user ratings can be attributed to a prompt change rather than
+# mistaken for a profile or model effect.
+PROMPT_VERSION = "2026-10-03.1"
 
 # The invariant scaffolding around every brief. Persona, edge focus, and the
 # sections are injected from the user's compiled_profile.
@@ -170,8 +187,15 @@ def _clean_fragment(text: str) -> str:
     return text.strip()
 
 
-def generate_digest_html(compiled_profile: dict[str, Any], date: str) -> str:
-    """Call Gemini with search grounding and return an HTML fragment.
+class Digest(NamedTuple):
+    """A generated brief plus what produced it (recorded for attribution)."""
+    html: str
+    model: str
+    prompt_version: str
+
+
+def generate_digest(compiled_profile: dict[str, Any], date: str) -> Digest:
+    """Call Gemini with search grounding and return the brief + its provenance.
 
     `date` is the user's local date string (e.g. "Monday, July 21, 2026").
     """
@@ -187,11 +211,16 @@ def generate_digest_html(compiled_profile: dict[str, Any], date: str) -> str:
         tools=[types.Tool(google_search=types.GoogleSearch())],
         temperature=0.4,
     )
-    response = generate_content_resilient(client, prompt, config)
+    response, model = generate_content_with_model(client, prompt, config)
 
     fragment = _clean_fragment(response.text or "")
     if len(fragment) < 200:
         raise RuntimeError(
             f"Gemini returned too little content ({len(fragment)} chars): {fragment!r}"
         )
-    return fragment
+    return Digest(html=fragment, model=model, prompt_version=PROMPT_VERSION)
+
+
+def generate_digest_html(compiled_profile: dict[str, Any], date: str) -> str:
+    """Just the HTML fragment, for callers that don't need provenance."""
+    return generate_digest(compiled_profile, date).html

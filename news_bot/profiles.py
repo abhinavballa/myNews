@@ -25,9 +25,13 @@ class Profile:
     timezone: str
     wants_push: bool
     wants_email: bool
+    # Which profile_versions row produced this profile. Recorded on every digest
+    # so a later thumbs-up can be attributed to the profile that earned it.
+    active_version: int | None = None
 
     @classmethod
     def from_row(cls, row: dict[str, Any]) -> "Profile":
+        version = row.get("active_version")
         return cls(
             id=row["id"],
             email=row.get("email"),
@@ -36,6 +40,7 @@ class Profile:
             timezone=row.get("timezone") or "America/Los_Angeles",
             wants_push=bool(row.get("wants_push", True)),
             wants_email=bool(row.get("wants_email", False)),
+            active_version=int(version) if version is not None else None,
         )
 
     def local_datetime(self, now_utc: datetime.datetime) -> datetime.datetime:

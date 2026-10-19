@@ -9,8 +9,12 @@ Each user's brief is built from *their* `compiled_profile` (persona, edge focus,
 and section list) stored in **Supabase** — not from a single hardcoded prompt.
 **Phase 1** is the per-user worker (email delivery). **Phase 2** adds the
 installable PWA: magic-link signup, a free-text interests box compiled into a
-profile, and an in-app reader/archive. Web push is Phase 3. See
-[`docs/superpowers/specs/2026-07-20-personalized-multiuser-digest-design.md`](docs/superpowers/specs/2026-07-20-personalized-multiuser-digest-design.md).
+profile, and an in-app reader/archive. **Phase 3** adds web push. On top of
+that, users can comment on any brief, and the comment is applied to their
+profile right away (with undo). See
+[`docs/superpowers/specs/2026-07-20-personalized-multiuser-digest-design.md`](docs/superpowers/specs/2026-07-20-personalized-multiuser-digest-design.md)
+and, for feedback,
+[`docs/superpowers/specs/2026-10-03-feedback-driven-profile-refinement-design.md`](docs/superpowers/specs/2026-10-03-feedback-driven-profile-refinement-design.md).
 
 ## How it works
 
@@ -28,7 +32,10 @@ profile, and an in-app reader/archive. Web push is Phase 3. See
 
 ### 1. Create the Supabase project
 - Create a project at https://supabase.com, then run
-  [`supabase/schema.sql`](supabase/schema.sql) in the SQL editor.
+  [`supabase/schema.sql`](supabase/schema.sql) in the SQL editor. For a project
+  created before the feedback feature, also run
+  [`supabase/migrations/2026-10-03-feedback-and-profile-versions.sql`](supabase/migrations/2026-10-03-feedback-and-profile-versions.sql)
+  once (safe to re-run).
 - A trigger auto-creates a `profiles` row (blank `compiled_profile`) whenever
   anyone signs in, so no uuid is ever created by hand. For your own account,
   sign in once, then run [`supabase/seed.sql`](supabase/seed.sql) with your
@@ -71,8 +78,8 @@ python -m news_bot.main                               # normal hourly behavior
 
 ## The PWA (Phase 2)
 
-The installable web app lives in `public/` (static) plus one Python serverless
-function in `api/`. It deploys to **Vercel** with zero build step.
+The installable web app lives in `public/` (static) plus two Python serverless
+functions in `api/`. It deploys to **Vercel** with zero build step.
 
 **Layout**
 - `public/` — the PWA (served at `/`): sign-in, onboarding, Today, Archive, Settings.
@@ -80,6 +87,11 @@ function in `api/`. It deploys to **Vercel** with zero build step.
   text box into a `compiled_profile` via Gemini and writes it back **as the
   signed-in user** (their token → RLS applies). This exists because a static page
   can't hold the Gemini key.
+- `api/feedback.py` — `POST /api/feedback`: saves a thumb/comment on a brief and,
+  if there's a new comment, has Gemini edit the user's `compiled_profile` to act on
+  it. The edit is stored in `profile_versions` (last 5 kept), and Settings has an
+  **Undo last change** button. A thumb alone just saves; only a comment triggers
+  an edit.
 
 **Deploy**
 1. Fill `public/config.js` with your `SUPABASE_URL` and **anon** key (safe to
@@ -121,14 +133,18 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-Covers due-user selection across timezones and DST boundaries, `compiled_profile`
-schema validation, prompt compilation, interests-compilation parsing, and digest
-idempotency.
+Covers due-user selection across timezones and DST boundaries (including the
+catch-up window), `compiled_profile` schema validation, prompt compilation,
+interests-compilation parsing, digest idempotency and attribution, Gemini
+retry/fallback, push, and the feedback flow (edit guardrails, feedback never
+lost on a failed edit, no double-apply). The Gemini call itself is stubbed.
 
 ## Customize
 
-- **A user's sections / tone / persona:** edit that profile's `compiled_profile`
-  in Supabase.
+- **A user's sections / tone / persona:** the user rebuilds from their interests
+  text or leaves a comment on a brief in the app. To edit by hand, insert a row
+  into `profile_versions` (`source = 'user'`); the trigger makes it active.
+  Editing `profiles.compiled_profile` directly also works but skips the history.
 - **Delivery time / timezone / channels:** the profile's `delivery_hour`,
   `timezone`, `wants_email` columns.
 - **More depth:** set `GEMINI_MODEL=gemini-3.5-pro`.

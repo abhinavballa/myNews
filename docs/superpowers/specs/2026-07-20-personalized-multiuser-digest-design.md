@@ -3,6 +3,10 @@
 **Date:** 2026-07-20
 **Repo:** abhinavballa/myNews
 **Supersedes parts of:** `2026-07-17-daily-news-digest-design.md` (single-user, single-prompt, email-only)
+**Later changes:** a second serverless function (`POST /api/feedback`) and the
+`digest_feedback` / `profile_versions` tables were added for feedback-driven
+profile edits — see `2026-10-03-feedback-driven-profile-refinement-design.md`.
+The due-hour check is now `>=` (catch-up for dropped cron runs), not `==`.
 
 ## Purpose
 

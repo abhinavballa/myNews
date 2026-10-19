@@ -267,24 +267,134 @@ $("enablePushBtn").onclick = async () => {
   if (ok) openToday();
 };
 
-// --- today ----------------------------------------------------------------
+// --- rendering a brief ----------------------------------------------------
+// Today and Archive both land here, so the digest id (needed to key feedback)
+// travels with the content and there's only one copy of the render logic.
+function longDate(localDate) {
+  // Noon avoids the date shifting a day under the viewer's UTC offset.
+  return new Date(localDate + "T12:00:00").toLocaleDateString([], {
+    weekday: "long", month: "long", day: "numeric",
+  });
+}
+
+async function renderDigest(digest) {
+  show("today");
+  $("todayTitle").textContent = longDate(digest.local_date);
+  $("todayContent").innerHTML = digest.html || `<p class="muted">Empty.</p>`;
+  await mountFeedback(digest);
+}
+
 async function openToday() {
   show("today");
   $("todayContent").innerHTML = `<div class="spinner">Loading…</div>`;
+  $("feedbackBox").classList.add("hidden");
   const localDate = todayLocalDate(profile.timezone);
-  const { data } = await sb.from("digests").select("html, local_date")
+  const { data } = await sb.from("digests").select("id, html, local_date")
     .eq("user_id", profile.id).eq("local_date", localDate).maybeSingle();
-  $("todayTitle").textContent = new Date().toLocaleDateString([], {
-    weekday: "long", month: "long", day: "numeric",
-  });
+
   if (data && data.html) {
-    $("todayContent").innerHTML = data.html;
-  } else {
-    $("todayContent").innerHTML =
-      `<p class="muted">No brief yet for today. Your next one arrives at ` +
-      `${new Date(2020, 0, 1, profile.delivery_hour).toLocaleTimeString([], { hour: "numeric", hour12: true })}.</p>`;
+    await renderDigest(data);
+    return;
   }
+  // Nothing to read means nothing to rate — leave the widget hidden.
+  $("todayTitle").textContent = longDate(localDate);
+  $("todayContent").innerHTML =
+    `<p class="muted">No brief yet for today. Your next one arrives at ` +
+    `${new Date(2020, 0, 1, profile.delivery_hour).toLocaleTimeString([], { hour: "numeric", hour12: true })}.</p>`;
 }
+
+// --- feedback -------------------------------------------------------------
+// One editable verdict per brief. Kept in local state and always written whole,
+// so a thumb tap can never blank out notes the user already saved.
+let currentDigest = null;
+let currentFeedback = { rating: null, notes: "" };
+
+function paintFeedback() {
+  $("thumbUpBtn").classList.toggle("active", currentFeedback.rating === 1);
+  $("thumbDownBtn").classList.toggle("active", currentFeedback.rating === -1);
+  $("feedbackNotes").value = currentFeedback.notes || "";
+}
+
+async function mountFeedback(digest) {
+  currentDigest = digest;
+  currentFeedback = { rating: null, notes: "" };
+  if (!digest.id) { $("feedbackBox").classList.add("hidden"); return; }
+
+  const { data } = await sb.from("digest_feedback").select("rating, notes")
+    .eq("user_id", profile.id).eq("digest_id", digest.id).maybeSingle();
+  if (data) {
+    currentFeedback = { rating: data.rating ?? null, notes: data.notes || "" };
+  }
+  paintFeedback();
+  $("feedbackBox").classList.remove("hidden");
+}
+
+// Thumb taps write directly (no LLM call); a thumb alone doesn't say what to
+// change. Comments go through /api/feedback below.
+async function saveFeedback({ quiet = false } = {}) {
+  if (!currentDigest || !currentDigest.id) return;
+  const { error } = await sb.from("digest_feedback").upsert({
+    user_id: profile.id,
+    digest_id: currentDigest.id,
+    rating: currentFeedback.rating,
+    notes: currentFeedback.notes || null,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "user_id,digest_id" });
+  if (error) return toast(error.message, true);
+  if (!quiet) toast("Thanks — this tunes your brief ✓");
+}
+
+function setRating(rating) {
+  // Tapping the active thumb clears it; rating stays nullable so a note alone
+  // is still valid feedback.
+  currentFeedback.rating = currentFeedback.rating === rating ? null : rating;
+  paintFeedback();
+  saveFeedback({ quiet: true });
+  toast(currentFeedback.rating === null ? "Rating cleared" : "Thanks ✓");
+}
+
+$("thumbUpBtn").onclick = () => setRating(1);
+$("thumbDownBtn").onclick = () => setRating(-1);
+
+// The comment goes through /api/feedback, which saves it and has the LLM apply
+// it to the profile in the same request — tomorrow's brief reflects it.
+$("saveFeedbackBtn").onclick = async () => {
+  if (!currentDigest || !currentDigest.id) return;
+  currentFeedback.notes = $("feedbackNotes").value.trim();
+  const btn = $("saveFeedbackBtn");
+  btn.disabled = true;
+  btn.textContent = currentFeedback.notes ? "Updating your brief…" : "Saving…";
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    const res = await fetch("/api/feedback", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        digest_id: currentDigest.id,
+        rating: currentFeedback.rating,
+        notes: currentFeedback.notes,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) return toast(body.error || "Couldn't save feedback", true);
+    if (body.updated) {
+      await loadProfile();
+      toast(`Brief updated ✓ ${body.rationale || ""}`.trim());
+    } else if (body.reason && body.reason !== "comment unchanged") {
+      toast("Feedback saved — couldn't update your brief this time");
+    } else {
+      toast("Feedback saved ✓");
+    }
+  } catch (err) {
+    toast(err.message || "Couldn't save feedback", true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Save feedback";
+  }
+};
 
 // --- archive --------------------------------------------------------------
 async function openArchive() {
@@ -303,12 +413,9 @@ async function openArchive() {
     row.className = "archive-item";
     row.innerHTML = `<span>${new Date(d.local_date + "T12:00:00")
       .toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</span><span>›</span>`;
-    row.onclick = () => {
-      $("todayTitle").textContent = new Date(d.local_date + "T12:00:00")
-        .toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
-      $("todayContent").innerHTML = d.html || `<p class="muted">Empty.</p>`;
-      show("today");
-    };
+    // Past briefs are rateable too — that's how a new user builds up enough
+    // feedback to tune their profile without waiting weeks for it.
+    row.onclick = () => renderDigest(d);
     list.appendChild(row);
   });
 }
@@ -322,6 +429,47 @@ function openSettings() {
   $("settingsWantsEmail").checked = !!profile.wants_email;
   $("settingsWantsPush").checked = !!profile.wants_push;
   $("settingsInstallBtn").classList.toggle("hidden", !deferredInstallPrompt);
+  loadTuning();
+}
+
+// --- tuning history + undo -----------------------------------------------
+// Shows the latest change feedback made and a one-step undo. The DB keeps the
+// last 5 versions, so undo can be pressed a few times in a row. If the
+// migration hasn't been run yet the query errors and the box stays hidden.
+async function loadTuning() {
+  const box = $("tuningBox");
+  box.classList.add("hidden");
+  const { data, error } = await sb.from("profile_versions")
+    .select("version, source, rationale, compiled_profile")
+    .eq("user_id", profile.id)
+    .order("version", { ascending: false });
+  if (error || !data || !data.length) return;
+
+  const active = data.find((v) => v.version === profile.active_version) || data[0];
+  const previous = data.find((v) => v.version < active.version);
+
+  $("tuningTitle").textContent = "Brief tuning";
+  $("tuningSummary").textContent = active.source === "learned"
+    ? `Last change from your feedback: ${active.rationale || "tuned from your notes."}`
+    : "Not tuned yet. Leave a note on a brief and your brief will adjust to it.";
+  $("revertProfileBtn").classList.toggle("hidden", !previous);
+  $("revertProfileBtn").onclick = () => undoTo(previous);
+  box.classList.remove("hidden");
+}
+
+async function undoTo(version) {
+  if (!version) return;
+  if (!confirm("Undo the last change to your brief?")) return;
+  // Undo points the profile at an existing version rather than inserting a
+  // new one, so it doesn't manufacture history.
+  const upd = await sb.from("profiles").update({
+    compiled_profile: version.compiled_profile,
+    active_version: version.version,
+  }).eq("id", profile.id);
+  if (upd.error) return toast(upd.error.message, true);
+  await loadProfile();
+  await loadTuning();
+  toast("Undone ✓");
 }
 
 $("settingsEnablePushBtn").onclick = () => enablePush();

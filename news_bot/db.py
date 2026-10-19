@@ -78,16 +78,24 @@ def digest_exists(user_id: str, local_date: str) -> bool:
 
 
 def insert_digest(user_id: str, local_date: str, html: str,
-                  teaser: str | None = None) -> bool:
+                  teaser: str | None = None, *,
+                  profile_version: int | None = None,
+                  model: str | None = None,
+                  prompt_version: str | None = None) -> bool:
     """Insert a digest row, ignoring duplicates at the DB level.
 
     Returns True if a new row was inserted, False if one already existed for
     (user_id, local_date). This is the idempotency guard against re-runs.
+
+    The provenance arguments (profile_version/model/prompt_version) are what let
+    a later thumbs-up be attributed to the profile, model, and prompt that
+    actually produced the brief. They cannot be reconstructed after the fact.
     """
     rows = _request(
         "POST", "digests",
         body={"user_id": user_id, "local_date": local_date, "html": html,
-              "teaser": teaser},
+              "teaser": teaser, "profile_version": profile_version,
+              "model": model, "prompt_version": prompt_version},
         extra_headers={"Prefer": "resolution=ignore-duplicates,return=representation"},
     )
     return bool(rows)

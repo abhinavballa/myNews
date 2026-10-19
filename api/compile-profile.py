@@ -15,7 +15,6 @@ Response:      {"compiled_profile": {...}}  on success
 
 from __future__ import annotations
 
-import base64
 import datetime
 import json
 import os
@@ -29,43 +28,54 @@ from http.server import BaseHTTPRequestHandler
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from news_bot.compile import compile_interests
+from news_bot.user_api import as_user_headers as _as_user_headers
+from news_bot.user_api import rest_base as _rest_base
+from news_bot.user_api import user_id_from_jwt as _user_id_from_jwt
 from news_bot.profiles import CompiledProfileError
-
-
-def _user_id_from_jwt(token: str) -> str | None:
-    """Extract the `sub` claim without verifying — RLS is the real gate; we only
-    use it to filter the PATCH to the caller's own row."""
-    try:
-        payload = token.split(".")[1]
-        payload += "=" * (-len(payload) % 4)  # pad base64url
-        claims = json.loads(base64.urlsafe_b64decode(payload))
-        return claims.get("sub")
-    except Exception:
-        return None
 
 
 def _write_profile(user_id: str, access_token: str, interests_text: str,
                    compiled: dict) -> None:
-    base = os.environ["SUPABASE_URL"].strip().rstrip("/")
-    if base.endswith("/rest/v1"):
-        base = base[: -len("/rest/v1")]
     body = json.dumps({
         "interests_text": interests_text,
         "compiled_profile": compiled,
         "compiled_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }).encode()
     req = urllib.request.Request(
-        f"{base}/rest/v1/profiles?id=eq.{user_id}",
+        f"{_rest_base()}/rest/v1/profiles?id=eq.{user_id}",
         data=body,
         method="PATCH",
-        headers={
-            "apikey": os.environ["SUPABASE_ANON_KEY"],
-            "Authorization": f"Bearer {access_token}",  # act as the user (RLS)
-            "Content-Type": "application/json",
-            "Prefer": "return=minimal",
-        },
+        headers=_as_user_headers(access_token, "return=minimal"),
     )
     urllib.request.urlopen(req, timeout=30).read()
+
+
+def _record_user_version(user_id: str, access_token: str, compiled: dict) -> None:
+    """Record this compile as a 'user' profile version (so it can be undone to).
+
+    Best-effort on purpose. The DB trigger stamps the version number and prunes
+    old versions. But if this code deploys before the migration has been run, the table does
+    not exist yet — and a brand-new user being unable to save their interests is
+    a much worse failure than versioning being briefly unavailable. So a failure
+    here is logged and swallowed; _write_profile above has already persisted the
+    profile itself, so the user is fully functional either way.
+    """
+    body = json.dumps({
+        "user_id": user_id,
+        "compiled_profile": compiled,
+        "source": "user",
+    }).encode()
+    req = urllib.request.Request(
+        f"{_rest_base()}/rest/v1/profile_versions",
+        data=body,
+        method="POST",
+        headers=_as_user_headers(access_token, "return=minimal"),
+    )
+    try:
+        urllib.request.urlopen(req, timeout=30).read()
+    except Exception as exc:  # noqa: BLE001 - never block a successful compile
+        detail = exc.read().decode(errors="replace") if hasattr(exc, "read") else exc
+        print(f"profile_versions insert failed (non-fatal): {detail}", file=sys.stderr)
 
 
 class handler(BaseHTTPRequestHandler):
@@ -113,5 +123,7 @@ class handler(BaseHTTPRequestHandler):
             return self._send(exc.code, {"error": f"save failed: {detail}"})
         except Exception as exc:
             return self._send(500, {"error": f"save failed: {exc}"})
+
+        _record_user_version(user_id, access_token, compiled)
 
         return self._send(200, {"compiled_profile": compiled})

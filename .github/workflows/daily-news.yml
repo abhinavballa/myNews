@@ -35,6 +35,9 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          # Base URL of the PWA. Adds a "how was this brief?" link to the email
+          # footer; the link is omitted entirely when this is unset.
+          APP_URL: ${{ vars.APP_URL }}
         run: |
           if [ -n "${{ inputs.user }}" ]; then
             python -m news_bot.main --user "${{ inputs.user }}"

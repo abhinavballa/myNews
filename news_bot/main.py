@@ -16,7 +16,7 @@ import sys
 
 from news_bot import db, push
 from news_bot.email_send import build_email_html, send_email
-from news_bot.generate import build_teaser, generate_digest_html
+from news_bot.generate import build_teaser, generate_digest
 from news_bot.profiles import Profile, select_due_profiles
 
 
@@ -47,12 +47,23 @@ def deliver(profile: Profile, local_date: str) -> None:
         return
 
     print(f"  [{profile.id}] generating digest for {local_date}...")
-    fragment = generate_digest_html(profile.compiled_profile, _human_date(local_date))
-    print(f"  [{profile.id}] generated {len(fragment)} chars.")
+    digest = generate_digest(profile.compiled_profile, _human_date(local_date))
+    fragment = digest.html
+    print(f"  [{profile.id}] generated {len(fragment)} chars "
+          f"(model={digest.model}, profile v{profile.active_version}).")
 
     # Insert first: the UNIQUE (user_id, local_date) constraint is what makes a
     # concurrent/re-run not double-deliver. If a row already snuck in, stop.
-    inserted = db.insert_digest(profile.id, local_date, fragment)
+    # The provenance fields are what let feedback on this brief be attributed to
+    # the profile/model/prompt that produced it; they can't be reconstructed.
+    teaser = build_teaser(fragment)
+    inserted = db.insert_digest(
+        profile.id, local_date, fragment,
+        teaser=teaser,
+        profile_version=profile.active_version,
+        model=digest.model,
+        prompt_version=digest.prompt_version,
+    )
     if not inserted:
         print(f"  [{profile.id}] digest row already existed; not delivering.")
         return
@@ -68,7 +79,7 @@ def deliver(profile: Profile, local_date: str) -> None:
         print(f"  [{profile.id}] NOT emailing: profile has no email address.")
 
     if profile.wants_push:
-        _deliver_push(profile, build_teaser(fragment))
+        _deliver_push(profile, teaser)
     else:
         print(f"  [{profile.id}] NOT pushing: wants_push is False.")
 

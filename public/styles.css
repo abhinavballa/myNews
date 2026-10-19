@@ -98,6 +98,21 @@ nav.tabs button.active { color: var(--accent); }
 .digest td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
 .digest strong { color: var(--text); }
 
+.feedback {
+  margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--border);
+}
+.feedback-head { font-weight: 600; margin-bottom: 10px; }
+.feedback-thumbs { display: flex; gap: 10px; margin-bottom: 14px; }
+.feedback-thumbs .thumb {
+  width: auto; flex: 0 0 auto; margin: 0;
+  background: var(--surface-2); border: 1px solid var(--border);
+  font-size: 22px; line-height: 1; padding: 10px 20px;
+}
+.feedback-thumbs .thumb.active { border-color: var(--accent); background: var(--surface); }
+.feedback label { font-size: 13px; color: var(--muted); }
+.feedback textarea { min-height: 84px; }
+.feedback-note { font-size: 12px; margin: 8px 0 0; }
+
 .archive-item {
   display: flex; justify-content: space-between; align-items: center;
   padding: 14px 4px; border-bottom: 1px solid var(--border); cursor: pointer;

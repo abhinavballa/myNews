@@ -80,6 +80,22 @@
     <section id="view-today" class="card hidden">
       <h1 id="todayTitle">Today</h1>
       <div id="todayContent" class="digest"></div>
+
+      <!-- Feedback on the brief above. The thumb saves on tap (one tap, no
+           keyboard); the notes save on the button, because a textarea that
+           auto-saved would fire mid-sentence. Either works without the other. -->
+      <div id="feedbackBox" class="feedback hidden">
+        <div class="feedback-head">How was this brief?</div>
+        <div class="feedback-thumbs">
+          <button type="button" id="thumbUpBtn" class="thumb" aria-label="Good brief">👍</button>
+          <button type="button" id="thumbDownBtn" class="thumb" aria-label="Weak brief">👎</button>
+        </div>
+        <label for="feedbackNotes">What should have been different? Be specific —
+          which items, what angle, what was filler.</label>
+        <textarea id="feedbackNotes" placeholder="e.g. the Nvidia item was the only useful one, the crypto section was filler, and the Edge lines were too generic"></textarea>
+        <button id="saveFeedbackBtn" class="secondary">Save feedback</button>
+        <p class="muted feedback-note">Saving a note updates how your brief is written, starting tomorrow.</p>
+      </div>
     </section>
 
     <!-- Archive -->
@@ -94,6 +110,13 @@
       <label for="settingsInterests">Your interests (editing rebuilds your brief)</label>
       <textarea id="settingsInterests"></textarea>
       <button id="recompileBtn" class="secondary">Rebuild brief</button>
+
+      <!-- The last change feedback made, and a one-step undo. -->
+      <div id="tuningBox" class="section-preview hidden">
+        <div class="title" id="tuningTitle">Brief tuning</div>
+        <div class="guidance" id="tuningSummary"></div>
+        <button id="revertProfileBtn" class="secondary">Undo last change</button>
+      </div>
       <label for="settingsHour">Delivery time</label>
       <div class="row">
         <select id="settingsHour"></select>
