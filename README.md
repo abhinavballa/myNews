@@ -128,7 +128,7 @@ automatically on the next send.
 
 ## Observability and evals
 
-With Phoenix configured, every worker run is traced: each user gets one trace
+With Arize AX configured, every worker run is traced: each user gets one trace
 (deliver → generate → the Gemini call with tokens/latency → email/push →
 evaluate). After each brief is sent, three evals score it and attach the scores
 to that trace:
@@ -139,14 +139,16 @@ to that trace:
   source (text with no source is where invented facts live).
 - `section_structure` — are the profile's sections all there, in order?
 
-Evals only record; they never block or delay a brief. Without Phoenix they
-still run and print to the Actions log.
+Evals only record; they never block or delay a brief. Without tracing
+configured they still run and print to the Actions log.
 
-**Setup:** create a Phoenix project (e.g. free Phoenix Cloud at
-https://app.phoenix.arize.com), then add GitHub secrets
-`PHOENIX_COLLECTOR_ENDPOINT` (the base URL Phoenix shows you) and
-`PHOENIX_API_KEY`. Optional repo variable `MYNEWS_LLM_EVALS=off` skips the LLM
-judge. Details: [`docs/superpowers/specs/2026-10-18-observability-and-evals-design.md`](docs/superpowers/specs/2026-10-18-observability-and-evals-design.md).
+**Setup (Arize AX):** add GitHub secrets `ARIZE_SPACE_ID` and `ARIZE_API_KEY`
+(`gh secret set ARIZE_SPACE_ID`, `gh secret set ARIZE_API_KEY`). Traces go to
+Arize's hosted collector — no endpoint needed — under project `mynews`. To
+verify: **Actions → Daily News Digest → Run workflow** with **check_tracing**
+ticked; it sends one test trace and delivers nothing. Optional repo variable
+`MYNEWS_LLM_EVALS=off` skips the LLM judge. (Self-hosted Phoenix also works:
+set `PHOENIX_COLLECTOR_ENDPOINT` instead.) Details: [`docs/superpowers/specs/2026-10-18-observability-and-evals-design.md`](docs/superpowers/specs/2026-10-18-observability-and-evals-design.md).
 
 ## Tests
 

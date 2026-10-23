@@ -1,6 +1,8 @@
-# Worker-only (GitHub Actions): tracing + evals. Kept out of requirements.txt
+# Worker-only (GitHub Actions): tracing (Arize AX, or self-hosted Phoenix) + evals. Kept out of requirements.txt
 # so the Vercel functions stay small (phoenix-evals pulls in pandas).
 -r requirements.txt
+arize-otel>=0.14
+arize>=8.60
 arize-phoenix-otel>=0.17
 openinference-instrumentation-google-genai>=1.4
 arize-phoenix-evals>=3.9

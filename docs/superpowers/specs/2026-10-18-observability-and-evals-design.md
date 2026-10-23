@@ -1,7 +1,7 @@
-# Observability (Phoenix tracing) and brief evals
+# Observability (Arize AX tracing) and brief evals
 
 **Date:** 2026-10-18
-**Status:** implemented
+**Status:** implemented. Revised 2026-10-22: hosted backend is Arize AX (was Phoenix).
 
 ## Problem
 
@@ -14,16 +14,24 @@ model fallback, a bad profile edit) would only surface as a user complaint.
 
 ### Tracing (`news_bot/tracing.py`)
 
-- `phoenix.otel.register()` + the OpenInference **Google GenAI instrumentor**: every
+- `arize.otel.register()` (Arize AX; or `phoenix.otel.register()` for self-hosted
+  Phoenix) + the OpenInference **Google GenAI instrumentor**: every
   Gemini call becomes an LLM span with prompt, output, model, token counts, latency.
 - Our own spans make each user's run one trace tree:
   `deliver` → `generate_digest` (search queries, source count, model, prompt version)
   → Gemini LLM span; `send_email` / `send_push`; `evaluate`.
-- **Off unless `PHOENIX_COLLECTOR_ENDPOINT` is set.** Every helper is a no-op when off
+- **Off unless configured:** `ARIZE_SPACE_ID` + `ARIZE_API_KEY` → Arize AX (hosted
+  collector `otlp.arize.com`, no endpoint needed); else `PHOENIX_COLLECTOR_ENDPOINT` →
+  self-hosted Phoenix. Every helper is a no-op when off
   or when the packages are missing, so the Vercel functions and tests don't depend on
   them. Tracing setup failures are logged and never stop a delivery run.
 - `flush()` runs before the process exits (GitHub Actions kills it on return), then
-  sends queued eval annotations.
+  sends queued eval results. Arize AX: one dataframe via
+  `ArizeClient.spans.update_evaluations` with `context.span_id` +
+  `eval.<name>.label/.score/.explanation` columns (validated offline against Arize's
+  own validators), retried with backoff while spans ingest. Phoenix: span annotations.
+- `python -m news_bot.tracing --check` (workflow input `check_tracing`) sends one test
+  span + eval to confirm configuration without delivering anything.
 
 Two things found by running against a real Phoenix server:
 
@@ -42,8 +50,8 @@ Run after the brief is delivered, per user:
 | `grounding_coverage` | Code | Share of the brief's bytes that Gemini attributed to a search source (merged `grounding_supports` spans / text length) |
 | `section_structure` | Code | Share of profile sections present as `<h2>`, in order |
 
-Results are printed to the log and attached to the user's `deliver` span as Phoenix
-annotations (LLM / CODE annotator kind), so they show as columns in the trace list.
+Results are printed to the log and attached to the user's `deliver` span as evals
+(Arize AX) or annotations (Phoenix), so they show as columns in the trace list.
 
 ### Why not Phoenix's Hallucination / Faithfulness evaluator
 
@@ -68,10 +76,11 @@ threshold, if any, is worth gating on.
 
 | Where | Name | Purpose |
 |---|---|---|
-| GitHub secret | `PHOENIX_COLLECTOR_ENDPOINT` | Phoenix base URL (e.g. `https://app.phoenix.arize.com/s/<space>`) — turns tracing on |
-| GitHub secret | `PHOENIX_API_KEY` | Phoenix Cloud API key |
+| GitHub secret | `ARIZE_SPACE_ID` | Arize AX space — with the key, turns tracing on |
+| GitHub secret | `ARIZE_API_KEY` | Arize AX API key |
+| env (self-hosted only) | `PHOENIX_COLLECTOR_ENDPOINT`, `PHOENIX_API_KEY` | Use Phoenix instead of AX |
 | GitHub variable | `MYNEWS_LLM_EVALS` | `off` skips the LLM judge (1 extra Gemini call per brief) |
-| env (optional) | `PHOENIX_PROJECT_NAME`, `EVAL_MODEL` | default `mynews`, `gemini-3.5-flash` |
+| env (optional) | `TRACING_PROJECT_NAME`, `EVAL_MODEL` | default `mynews`, `gemini-3.5-flash` |
 
 Worker-only dependencies live in `requirements-worker.txt` (phoenix-evals pulls in
 pandas; keeping it out of `requirements.txt` keeps the Vercel functions small).

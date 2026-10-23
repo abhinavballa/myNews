@@ -17,11 +17,13 @@ from news_bot.profiles import Profile
 @pytest.fixture(autouse=True)
 def _reset_tracing(monkeypatch):
     monkeypatch.setattr(tracing, "_provider", None)
+    monkeypatch.setattr(tracing, "_backend", None)
     monkeypatch.setattr(tracing, "_pending_annotations", [])
+    for var in ("ARIZE_SPACE_ID", "ARIZE_API_KEY", "PHOENIX_COLLECTOR_ENDPOINT"):
+        monkeypatch.delenv(var, raising=False)
 
 
 def test_off_without_endpoint(monkeypatch):
-    monkeypatch.delenv("PHOENIX_COLLECTOR_ENDPOINT", raising=False)
     assert tracing.init_tracing() is False
     with tracing.span("x", foo=1) as s:
         assert s is None
@@ -208,3 +210,87 @@ def test_other_errors_are_not_retried():
 def test_traces_endpoint_accepts_base_or_full_url(monkeypatch, value, expected):
     monkeypatch.setenv("PHOENIX_COLLECTOR_ENDPOINT", value)
     assert tracing.traces_endpoint() == expected
+
+
+# --- backend selection + Arize AX -------------------------------------------
+
+def test_arize_needs_both_space_and_key(monkeypatch):
+    monkeypatch.setenv("ARIZE_SPACE_ID", "space")
+    assert tracing.configured_backend() is None
+    monkeypatch.setenv("ARIZE_API_KEY", "key")
+    assert tracing.configured_backend() == "arize"
+
+
+def test_arize_wins_over_phoenix(monkeypatch):
+    monkeypatch.setenv("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006")
+    assert tracing.configured_backend() == "phoenix"
+    monkeypatch.setenv("ARIZE_SPACE_ID", "space")
+    monkeypatch.setenv("ARIZE_API_KEY", "key")
+    assert tracing.configured_backend() == "arize"
+
+
+def test_arize_rows_group_evals_by_span():
+    rows = tracing.arize_evals_rows([
+        {"span_id": "a", "name": "grounding_coverage", "result": {"score": 0.5, "label": "grounded"}},
+        {"span_id": "a", "name": "section_structure", "result": {"score": 1.0}},
+        {"span_id": "b", "name": "section_structure", "result": {"score": 0.0}},
+    ])
+    assert rows == [
+        {"context.span_id": "a", "eval.grounding_coverage.score": 0.5,
+         "eval.grounding_coverage.label": "grounded", "eval.section_structure.score": 1.0},
+        {"context.span_id": "b", "eval.section_structure.score": 0.0},
+    ]
+
+
+class FakeArizeSpans:
+    def __init__(self, errors=()):
+        self.errors = list(errors)
+        self.calls = []
+
+    def update_evaluations(self, *, space_id, project_name, dataframe):
+        self.calls.append((space_id, project_name, dataframe))
+        if self.errors:
+            raise self.errors.pop(0)
+
+
+def test_arize_upload_sends_one_frame(monkeypatch):
+    pytest.importorskip("pandas")
+    monkeypatch.setenv("ARIZE_SPACE_ID", "space")
+    spans = FakeArizeSpans()
+    client = type("C", (), {"spans": spans})()
+    tracing._send_to_arize(
+        [{"span_id": "a", "name": "e", "result": {"score": 1.0}}],
+        client=client, sleep_fn=lambda s: None)
+    space, project, df = spans.calls[0]
+    assert (space, project) == ("space", tracing.PROJECT_NAME)
+    assert list(df.columns) == ["context.span_id", "eval.e.score"]
+
+
+def test_arize_upload_retries_until_the_span_is_ingested(monkeypatch):
+    pytest.importorskip("pandas")
+    monkeypatch.setenv("ARIZE_SPACE_ID", "space")
+    spans = FakeArizeSpans(errors=[RuntimeError("span not found")])
+    client = type("C", (), {"spans": spans})()
+    slept = []
+    tracing._send_to_arize([{"span_id": "a", "name": "e", "result": {"score": 1.0}}],
+                           client=client, sleep_fn=slept.append)
+    assert len(spans.calls) == 2 and slept == [5, 10]
+
+
+def test_arize_upload_does_not_retry_bad_credentials(monkeypatch):
+    pytest.importorskip("pandas")
+    monkeypatch.setenv("ARIZE_SPACE_ID", "space")
+
+    class AuthenticationError(Exception):
+        pass
+    spans = FakeArizeSpans(errors=[AuthenticationError("401")])
+    client = type("C", (), {"spans": spans})()
+    with pytest.raises(AuthenticationError):
+        tracing._send_to_arize([{"span_id": "a", "name": "e", "result": {"score": 1.0}}],
+                               client=client, sleep_fn=lambda s: None)
+    assert len(spans.calls) == 1
+
+
+def test_check_reports_when_not_configured(capsys):
+    assert tracing.check() == 1
+    assert "not configured" in capsys.readouterr().out

@@ -1,9 +1,9 @@
 name: Daily News Digest
 
 on:
-  # Runs hourly. Each run delivers to users whose current local hour equals
-  # their delivery_hour and who have no digest yet for their local date, so
-  # every user is served at their own local time (and correctly across DST).
+  # Runs hourly. Each run delivers to users whose current local hour is at or
+  # past their delivery_hour and who have no digest yet for their local date,
+  # so every user is served at their own local time (and correctly across DST).
   schedule:
     - cron: "0 * * * *"
   workflow_dispatch:
@@ -12,6 +12,11 @@ on:
         description: "Force delivery for a single profile uuid (optional)"
         type: string
         required: false
+      check_tracing:
+        description: "Only send a test trace to Arize AX (delivers nothing)"
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   send-digest:
@@ -38,14 +43,17 @@ jobs:
           # Base URL of the PWA. Adds a "how was this brief?" link to the email
           # footer; the link is omitted entirely when this is unset.
           APP_URL: ${{ vars.APP_URL }}
-          # Phoenix tracing + eval annotations. Tracing stays off when the
-          # endpoint is unset; evals still run and print to the log.
-          PHOENIX_COLLECTOR_ENDPOINT: ${{ secrets.PHOENIX_COLLECTOR_ENDPOINT }}
-          PHOENIX_API_KEY: ${{ secrets.PHOENIX_API_KEY }}
+          # Arize AX tracing + eval results (hosted collector, no endpoint
+          # needed). Tracing stays off when unset; evals still run and print
+          # to the log.
+          ARIZE_SPACE_ID: ${{ secrets.ARIZE_SPACE_ID }}
+          ARIZE_API_KEY: ${{ secrets.ARIZE_API_KEY }}
           # Set to "off" to skip the LLM judge (one extra Gemini call per brief).
           MYNEWS_LLM_EVALS: ${{ vars.MYNEWS_LLM_EVALS }}
         run: |
-          if [ -n "${{ inputs.user }}" ]; then
+          if [ "${{ inputs.check_tracing }}" = "true" ]; then
+            python -m news_bot.tracing --check
+          elif [ -n "${{ inputs.user }}" ]; then
             python -m news_bot.main --user "${{ inputs.user }}"
           else
             python -m news_bot.main
