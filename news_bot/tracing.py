@@ -1,10 +1,11 @@
-"""OpenTelemetry tracing for the worker, sent to Arize AX (or self-hosted Phoenix).
+"""OpenTelemetry tracing for the worker, sent to Phoenix (or Arize AX).
 
 Off by default. Which backend is used depends on what's configured:
 
-  Arize AX (hosted)     ARIZE_SPACE_ID + ARIZE_API_KEY. Exports to Arize's
+  Phoenix               PHOENIX_COLLECTOR_ENDPOINT (+ PHOENIX_API_KEY for
+                        Phoenix Cloud). What the workflow uses.
+  Arize AX (paid)       ARIZE_SPACE_ID + ARIZE_API_KEY. Exports to Arize's
                         collector (otlp.arize.com) — no endpoint needed.
-  Phoenix (self-hosted) PHOENIX_COLLECTOR_ENDPOINT (+ PHOENIX_API_KEY).
 
 When on:
   - every Gemini call is captured automatically by the OpenInference Google
@@ -242,7 +243,8 @@ def check() -> int:
     Usage: python -m news_bot.tracing --check
     """
     if not init_tracing():
-        print("Tracing is not configured (set ARIZE_SPACE_ID + ARIZE_API_KEY).")
+        print("Tracing is not configured: set PHOENIX_COLLECTOR_ENDPOINT "
+              "(+ PHOENIX_API_KEY for Phoenix Cloud), or ARIZE_SPACE_ID + ARIZE_API_KEY.")
         return 1
     with span("tracing_check", "CHAIN", **{"input.value": "config check"}) as s:
         # One tiny real Gemini call, so the trace shows the instrumented LLM

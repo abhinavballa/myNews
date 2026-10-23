@@ -1,7 +1,9 @@
 # Observability (Arize AX tracing) and brief evals
 
 **Date:** 2026-10-18
-**Status:** implemented. Revised 2026-10-22: hosted backend is Arize AX (was Phoenix).
+**Status:** implemented. Backend history: Phoenix (2026-10-18) → Arize AX (2026-10-22) →
+back to **Phoenix Cloud** (2026-10-23) to avoid AX's paid plan. Both remain supported in
+code; the workflow passes the Phoenix secrets.
 
 ## Problem
 
@@ -82,9 +84,9 @@ threshold, if any, is worth gating on.
 
 | Where | Name | Purpose |
 |---|---|---|
-| GitHub secret | `ARIZE_SPACE_ID` | Arize AX space — with the key, turns tracing on |
-| GitHub secret | `ARIZE_API_KEY` | Arize AX API key |
-| env (self-hosted only) | `PHOENIX_COLLECTOR_ENDPOINT`, `PHOENIX_API_KEY` | Use Phoenix instead of AX |
+| GitHub secret | `PHOENIX_COLLECTOR_ENDPOINT` | Phoenix Cloud space URL — turns tracing on |
+| GitHub secret | `PHOENIX_API_KEY` | Phoenix Cloud API key |
+| env (alternative) | `ARIZE_SPACE_ID`, `ARIZE_API_KEY` | Use Arize AX instead (takes priority if set) |
 | GitHub variable | `MYNEWS_LLM_EVALS` | `off` skips the LLM judge (1 extra Gemini call per brief) |
 | env (optional) | `TRACING_PROJECT_NAME`, `EVAL_MODEL` | default `mynews`, `gemini-3.5-flash` |
 

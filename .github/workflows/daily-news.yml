@@ -18,7 +18,7 @@ on:
         required: false
         default: false
       check_tracing:
-        description: "Only send a test trace to Arize AX (delivers nothing)"
+        description: "Only send a test trace to Phoenix (delivers nothing)"
         type: boolean
         required: false
         default: false
@@ -48,11 +48,11 @@ jobs:
           # Base URL of the PWA. Adds a "how was this brief?" link to the email
           # footer; the link is omitted entirely when this is unset.
           APP_URL: ${{ vars.APP_URL }}
-          # Arize AX tracing + eval results (hosted collector, no endpoint
-          # needed). Tracing stays off when unset; evals still run and print
-          # to the log.
-          ARIZE_SPACE_ID: ${{ secrets.ARIZE_SPACE_ID }}
-          ARIZE_API_KEY: ${{ secrets.ARIZE_API_KEY }}
+          # Phoenix tracing + eval results. Endpoint = the Phoenix Cloud URL
+          # (https://app.phoenix.arize.com/s/<your-space>). Tracing stays off
+          # when unset; evals still run and print to the log.
+          PHOENIX_COLLECTOR_ENDPOINT: ${{ secrets.PHOENIX_COLLECTOR_ENDPOINT }}
+          PHOENIX_API_KEY: ${{ secrets.PHOENIX_API_KEY }}
           # Set to "off" to skip the LLM judge (one extra Gemini call per brief).
           MYNEWS_LLM_EVALS: ${{ vars.MYNEWS_LLM_EVALS }}
         run: |
