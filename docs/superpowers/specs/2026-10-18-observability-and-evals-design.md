@@ -31,7 +31,13 @@ model fallback, a bad profile edit) would only surface as a user complaint.
   `eval.<name>.label/.score/.explanation` columns (validated offline against Arize's
   own validators), retried with backoff while spans ingest. Phoenix: span annotations.
 - `python -m news_bot.tracing --check` (workflow input `check_tracing`) sends one test
-  span + eval to confirm configuration without delivering anything.
+  span + eval (with one tiny Gemini call) to confirm configuration without delivering.
+- `python -m news_bot.main --user <uuid> --preview` (workflow inputs `user` + `preview`)
+  generates, evaluates, and traces one user's brief but saves and sends nothing.
+- Every span carries `input.value` / `output.value` — Arize's trace list shows the root
+  span's, so `deliver` has the profile summary in and the brief out; `generate_digest`
+  has the full prompt; `evaluate` outputs the scores as JSON. (First live traces
+  showed blank input/output because only child spans had them.)
 
 Two things found by running against a real Phoenix server:
 

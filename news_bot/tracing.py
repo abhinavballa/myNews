@@ -185,12 +185,14 @@ def arize_evals_rows(annotations: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _send_to_arize(annotations: list[dict[str, Any]], *,
-                   delays: tuple[float, ...] = (5, 10, 20),
+                   delays: tuple[float, ...] = (5, 15, 30, 60),
                    sleep_fn=time.sleep, client: Any = None) -> None:
     """Upload eval results for spans just exported.
 
     Arize ingests spans asynchronously, so an eval for a span it hasn't stored
-    yet can fail; retry with backoff (and wait once up front for ingestion).
+    yet fails with "not found" (and on a brand-new project, "project not
+    found" until its first span lands). Wait up front, then retry with backoff
+    for ~2 minutes in total.
     """
     import pandas as pd
 
@@ -243,6 +245,20 @@ def check() -> int:
         print("Tracing is not configured (set ARIZE_SPACE_ID + ARIZE_API_KEY).")
         return 1
     with span("tracing_check", "CHAIN", **{"input.value": "config check"}) as s:
+        # One tiny real Gemini call, so the trace shows the instrumented LLM
+        # span (prompt, response, tokens) — the same thing every brief records.
+        reply = "(no GEMINI_API_KEY; skipped the model call)"
+        if os.environ.get("GEMINI_API_KEY"):
+            try:
+                from google import genai
+                client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+                reply = client.models.generate_content(
+                    model=os.environ.get("GEMINI_MODEL", "gemini-3.5-flash"),
+                    contents="Reply with one short sentence confirming you received this.",
+                ).text or ""
+            except Exception as exc:
+                reply = f"model call failed: {exc!r}"
+        set_attributes(s, **{"output.value": reply})
         annotate(s, "tracing_check", kind="CODE", label="ok", score=1.0,
                  explanation="Test eval from news_bot.tracing --check.")
     sid = span_id(s)

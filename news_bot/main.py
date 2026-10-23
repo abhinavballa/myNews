@@ -3,21 +3,24 @@
 Runs hourly (GitHub Actions cron `0 * * * *`). Each run fetches active
 profiles, keeps the ones whose current local hour is at or past their delivery
 hour and who have no digest yet for their local date, then generates, delivers,
-and evaluates. With Phoenix configured, each user's run is one trace.
+and evaluates. With tracing configured (Arize AX), each user's run is one trace.
 
 Usage:
-    python -m news_bot.main                 # normal hourly run
-    python -m news_bot.main --user <uuid>   # force one user now (testing)
+    python -m news_bot.main                           # normal hourly run
+    python -m news_bot.main --user <uuid>             # force one user now (testing)
+    python -m news_bot.main --user <uuid> --preview   # generate + evaluate + trace,
+                                                      # but save and send nothing
 """
 
 from __future__ import annotations
 
 import datetime
+import json
 import sys
 
 from news_bot import db, evals, push, tracing
 from news_bot.email_send import build_email_html, send_email
-from news_bot.generate import build_teaser, generate_digest
+from news_bot.generate import build_teaser, compile_prompt, generate_digest
 from news_bot.profiles import Profile, select_due_profiles
 
 
@@ -41,24 +44,45 @@ def _subject_date(local_date: str) -> str:
     return d.strftime("%b %d")
 
 
-def deliver(profile: Profile, local_date: str) -> None:
-    """Generate, persist, deliver, and evaluate one user's brief (one trace)."""
+def _profile_summary(profile: Profile, local_date: str) -> str:
+    """The root span's input: what this run was asked to produce."""
+    cp = profile.compiled_profile or {}
+    sections = "\n".join(f"  - {s.get('emoji', '')} {s.get('title', '')}: {s.get('guidance', '')}"
+                         for s in cp.get("sections") or [])
+    return (f"Daily brief for {_human_date(local_date)} "
+            f"(profile v{profile.active_version})\n"
+            f"Persona: {cp.get('persona', '')}\n"
+            f"Edge for: {cp.get('edge_for', '')}\n"
+            f"Sections:\n{sections}")
+
+
+def deliver(profile: Profile, local_date: str, *, preview: bool = False) -> None:
+    """Generate, persist, deliver, and evaluate one user's brief (one trace).
+
+    preview=True generates and evaluates (and traces) but saves and sends
+    nothing — for inspecting a full trace without touching the user.
+    """
     with tracing.span("deliver", "CHAIN", **{
+        "input.value": _profile_summary(profile, local_date),
         "user.id": profile.id, "mynews.local_date": local_date,
         "mynews.profile_version": profile.active_version,
+        "mynews.preview": preview,
     }) as root:
-        _deliver(profile, local_date, root)
+        _deliver(profile, local_date, root, preview=preview)
 
 
-def _deliver(profile: Profile, local_date: str, root) -> None:
-    if db.digest_exists(profile.id, local_date):
+def _deliver(profile: Profile, local_date: str, root, *, preview: bool = False) -> None:
+    if not preview and db.digest_exists(profile.id, local_date):
         print(f"  [{profile.id}] already has a digest for {local_date}; skipping.")
-        tracing.set_attributes(root, **{"mynews.outcome": "already_delivered"})
+        tracing.set_attributes(root, **{
+            "mynews.outcome": "already_delivered",
+            "output.value": f"Skipped: a brief for {local_date} was already delivered.",
+        })
         return
 
     print(f"  [{profile.id}] generating digest for {local_date}...")
     with tracing.span("generate_digest", "CHAIN", **{
-        "input.value": _human_date(local_date),
+        "input.value": compile_prompt(profile.compiled_profile, _human_date(local_date)),
     }) as gen:
         digest = generate_digest(profile.compiled_profile, _human_date(local_date))
         grounding = digest.grounding or {}
@@ -72,6 +96,13 @@ def _deliver(profile: Profile, local_date: str, root) -> None:
     fragment = digest.html
     print(f"  [{profile.id}] generated {len(fragment)} chars "
           f"(model={digest.model}, profile v{profile.active_version}).")
+    tracing.set_attributes(root, **{"output.value": fragment})
+
+    if preview:
+        print(f"  [{profile.id}] PREVIEW: not saving, emailing, or pushing.")
+        tracing.set_attributes(root, **{"mynews.outcome": "preview"})
+        _evaluate(profile, digest, root)
+        return
 
     # Insert first: the UNIQUE (user_id, local_date) constraint is what makes a
     # concurrent/re-run not double-deliver. If a row already snuck in, stop.
@@ -91,9 +122,13 @@ def _deliver(profile: Profile, local_date: str, root) -> None:
         return
 
     if profile.wants_email and profile.email:
-        with tracing.span("send_email", "TOOL"):
+        with tracing.span("send_email", "TOOL", **{
+            "input.value": f"To {_mask_email(profile.email)}: "
+                           f"Morning Brief {_subject_date(local_date)}",
+        }) as sp:
             html = build_email_html(fragment, _human_date(local_date))
             send_email(html, profile.email, _subject_date(local_date))
+            tracing.set_attributes(sp, **{"output.value": "sent"})
         print(f"  [{profile.id}] EMAILED -> {_mask_email(profile.email)}")
     elif not profile.wants_email:
         print(f"  [{profile.id}] NOT emailing: wants_email is False "
@@ -102,8 +137,9 @@ def _deliver(profile: Profile, local_date: str, root) -> None:
         print(f"  [{profile.id}] NOT emailing: profile has no email address.")
 
     if profile.wants_push:
-        with tracing.span("send_push", "TOOL"):
-            _deliver_push(profile, teaser)
+        with tracing.span("send_push", "TOOL", **{"input.value": teaser}) as sp:
+            result = _deliver_push(profile, teaser)
+            tracing.set_attributes(sp, **{"output.value": result})
     else:
         print(f"  [{profile.id}] NOT pushing: wants_push is False.")
 
@@ -113,8 +149,12 @@ def _deliver(profile: Profile, local_date: str, root) -> None:
 
 def _evaluate(profile: Profile, digest, root) -> None:
     """Score the brief after it's sent. Never raises, never blocks delivery."""
-    with tracing.span("evaluate", "EVALUATOR"):
+    with tracing.span("evaluate", "EVALUATOR", **{"input.value": digest.html}) as sp:
         results = evals.run_evals(profile.compiled_profile, digest.html, digest.grounding)
+        tracing.set_attributes(sp, **{
+            "output.value": json.dumps([r._asdict() for r in results], ensure_ascii=False),
+            "output.mime_type": "application/json",
+        })
     for r in results:
         score = "n/a" if r.score is None else f"{r.score:.2f}"
         print(f"  [{profile.id}] eval {r.name}: {score} ({r.label}) — {r.explanation[:160]}")
@@ -122,7 +162,7 @@ def _evaluate(profile: Profile, digest, root) -> None:
                          score=r.score, explanation=r.explanation)
 
 
-def _deliver_push(profile: Profile, teaser: str) -> None:
+def _deliver_push(profile: Profile, teaser: str) -> str:
     """Send the day's teaser to each of the user's devices; prune dead ones.
 
     Isolated from email: a push failure never affects email delivery, and one
@@ -143,9 +183,11 @@ def _deliver_push(profile: Profile, teaser: str) -> None:
             sent += 1
     if subs:
         print(f"  [{profile.id}] pushed to {sent}/{len(subs)} device(s).")
+    return f"pushed to {sent}/{len(subs)} device(s)"
 
 
-def run(now_utc: datetime.datetime, only_user: str | None = None) -> int:
+def run(now_utc: datetime.datetime, only_user: str | None = None, *,
+        preview: bool = False) -> int:
     rows = db.fetch_active_profiles()
     profiles = [Profile.from_row(r) for r in rows]
     print(f"[{now_utc:%Y-%m-%d %H:%M} UTC] Fetched {len(profiles)} active profile(s).")
@@ -174,7 +216,7 @@ def run(now_utc: datetime.datetime, only_user: str | None = None) -> int:
     for profile in due:
         local_date = profile.local_date(now_utc)
         try:
-            deliver(profile, local_date)
+            deliver(profile, local_date, preview=preview)
         except Exception as exc:  # one bad profile must never abort the run
             failures += 1
             print(f"  [{profile.id}] FAILED: {exc!r}")
@@ -190,11 +232,15 @@ def main() -> int:
         except IndexError:
             print("--user requires a uuid argument.")
             return 2
+    preview = "--preview" in sys.argv
+    if preview and not only_user:
+        print("--preview requires --user <uuid>.")
+        return 2
 
     tracing.init_tracing()
     now_utc = datetime.datetime.now(datetime.timezone.utc)
     try:
-        return run(now_utc, only_user=only_user)
+        return run(now_utc, only_user=only_user, preview=preview)
     finally:
         tracing.flush()  # export spans + eval annotations before the job exits
 

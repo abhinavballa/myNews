@@ -12,6 +12,11 @@ on:
         description: "Force delivery for a single profile uuid (optional)"
         type: string
         required: false
+      preview:
+        description: "With a user uuid: generate + evaluate + trace, but save and send nothing"
+        type: boolean
+        required: false
+        default: false
       check_tracing:
         description: "Only send a test trace to Arize AX (delivers nothing)"
         type: boolean
@@ -53,6 +58,8 @@ jobs:
         run: |
           if [ "${{ inputs.check_tracing }}" = "true" ]; then
             python -m news_bot.tracing --check
+          elif [ -n "${{ inputs.user }}" ] && [ "${{ inputs.preview }}" = "true" ]; then
+            python -m news_bot.main --user "${{ inputs.user }}" --preview
           elif [ -n "${{ inputs.user }}" ]; then
             python -m news_bot.main --user "${{ inputs.user }}"
           else

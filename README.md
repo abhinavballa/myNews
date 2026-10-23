@@ -146,7 +146,10 @@ configured they still run and print to the Actions log.
 (`gh secret set ARIZE_SPACE_ID`, `gh secret set ARIZE_API_KEY`). Traces go to
 Arize's hosted collector — no endpoint needed — under project `mynews`. To
 verify: **Actions → Daily News Digest → Run workflow** with **check_tracing**
-ticked; it sends one test trace and delivers nothing. Optional repo variable
+ticked; it sends one test trace (with a tiny Gemini call) and delivers
+nothing. To see a full brief trace on demand, run it with a profile **user**
+uuid and **preview** ticked: it generates and evaluates that user's brief and
+traces everything, but saves and sends nothing. Optional repo variable
 `MYNEWS_LLM_EVALS=off` skips the LLM judge. (Self-hosted Phoenix also works:
 set `PHOENIX_COLLECTOR_ENDPOINT` instead.) Details: [`docs/superpowers/specs/2026-10-18-observability-and-evals-design.md`](docs/superpowers/specs/2026-10-18-observability-and-evals-design.md).
 

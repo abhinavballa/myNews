@@ -6,6 +6,9 @@ skipped without them.
 
 from __future__ import annotations
 
+import dataclasses
+import json
+
 import pytest
 
 import news_bot.main as worker
@@ -109,6 +112,46 @@ def test_deliver_produces_one_trace_tree(monkeypatch, exporter):
     assert tuple(gen["mynews.search_queries"]) == ("nvidia",)
     assert gen["mynews.source_count"] == 1
     assert spans["evaluate"].attributes["openinference.span.kind"] == "EVALUATOR"
+
+
+def test_every_span_has_an_input_and_output(monkeypatch, exporter):
+    """Arize's trace list shows the root span's input/output; blank = useless."""
+    stub_worker(monkeypatch)
+    worker.deliver(profile(), "2026-10-18")
+    spans = {s.name: s.attributes for s in exporter.get_finished_spans()}
+
+    root = spans["deliver"]
+    assert "Daily brief for Sunday, October 18, 2026" in root["input.value"]
+    assert "AI: g" in root["input.value"]  # the profile's sections
+    assert root["output.value"].startswith("<h2>")  # the brief itself
+
+    gen = spans["generate_digest"]
+    assert "You are a sharp research analyst" in gen["input.value"]  # the real prompt
+    assert gen["output.value"].startswith("<h2>")
+
+    ev = spans["evaluate"]
+    assert ev["input.value"].startswith("<h2>")
+    scores = json.loads(ev["output.value"])
+    assert {s["name"] for s in scores} == {"grounding_coverage", "section_structure"}
+
+
+def test_skipped_delivery_says_why_in_the_output(monkeypatch, exporter):
+    monkeypatch.setattr(worker.db, "digest_exists", lambda uid, d: True)
+    worker.deliver(profile(), "2026-10-18")
+    root = exporter.get_finished_spans()[0].attributes
+    assert "already delivered" in root["output.value"]
+
+
+def test_email_and_push_spans_record_what_was_sent(monkeypatch, exporter):
+    stub_worker(monkeypatch)
+    monkeypatch.setattr(worker, "send_email", lambda *a, **k: None)
+    monkeypatch.setattr(worker.db, "fetch_push_subscriptions", lambda uid: [])
+    p = dataclasses.replace(profile(), wants_email=True, wants_push=True)
+    worker.deliver(p, "2026-10-18")
+    spans = {s.name: s.attributes for s in exporter.get_finished_spans()}
+    assert spans["send_email"]["input.value"].startswith("To a...@b.com")
+    assert spans["send_email"]["output.value"] == "sent"
+    assert spans["send_push"]["output.value"] == "pushed to 0/0 device(s)"
 
 
 def test_eval_scores_are_queued_as_annotations_on_the_root(monkeypatch, exporter):
@@ -274,7 +317,7 @@ def test_arize_upload_retries_until_the_span_is_ingested(monkeypatch):
     slept = []
     tracing._send_to_arize([{"span_id": "a", "name": "e", "result": {"score": 1.0}}],
                            client=client, sleep_fn=slept.append)
-    assert len(spans.calls) == 2 and slept == [5, 10]
+    assert len(spans.calls) == 2 and slept == [5, 15]
 
 
 def test_arize_upload_does_not_retry_bad_credentials(monkeypatch):
@@ -294,3 +337,28 @@ def test_arize_upload_does_not_retry_bad_credentials(monkeypatch):
 def test_check_reports_when_not_configured(capsys):
     assert tracing.check() == 1
     assert "not configured" in capsys.readouterr().out
+
+
+# --- preview mode -------------------------------------------------------------
+
+def test_preview_generates_and_evaluates_but_saves_and_sends_nothing(monkeypatch, capsys):
+    stub_worker(monkeypatch)
+    monkeypatch.setattr(worker.db, "digest_exists", lambda uid, d: True)  # even if delivered
+
+    def must_not_call(*a, **k):
+        raise AssertionError("preview must not write or send")
+    monkeypatch.setattr(worker.db, "insert_digest", must_not_call)
+    monkeypatch.setattr(worker, "send_email", must_not_call)
+    monkeypatch.setattr(worker, "_deliver_push", must_not_call)
+    p = dataclasses.replace(profile(), wants_email=True, wants_push=True)
+
+    worker.deliver(p, "2026-10-18", preview=True)
+    out = capsys.readouterr().out
+    assert "PREVIEW" in out
+    assert "eval section_structure" in out
+
+
+def test_preview_requires_a_user(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["main", "--preview"])
+    assert worker.main() == 2
+    assert "--preview requires --user" in capsys.readouterr().out

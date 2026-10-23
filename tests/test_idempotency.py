@@ -83,7 +83,7 @@ def test_run_isolates_a_failing_profile(monkeypatch):
     now_utc = datetime.datetime(2026, 7, 21, 15, tzinfo=datetime.timezone.utc)
 
     delivered = []
-    def fake_deliver(profile, local_date):
+    def fake_deliver(profile, local_date, **kwargs):
         if profile.id == "u2":
             raise RuntimeError("boom")
         delivered.append(profile.id)
